@@ -1,0 +1,443 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #0d1117;
+  --color-bg-secondary: #161b22;
+  --color-bg-tertiary: #21262d;
+  --color-border: #30363d;
+  --color-text-primary: #e6edf3;
+  --color-text-secondary: #8b949e;
+  --color-text-muted: #6e7681;
+  --color-accent: #58a6ff;
+  --color-accent-hover: #79c0ff;
+  --color-success: #3fb950;
+  --color-warning: #d29922;
+  --color-error: #f85149;
+  --color-thinking: #a371f7;
+  --color-tool: #f0883e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* Terminal pane */
+.terminal-pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.terminal-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.terminal-input {
+  border-top: 1px solid var(--color-border);
+  padding: 12px;
+  background: var(--color-bg-tertiary);
+}
+
+/* Message styles */
+.message {
+  margin-bottom: 16px;
+}
+
+.message-user {
+  background: var(--color-bg-tertiary);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.message-assistant {
+  padding: 12px 0;
+}
+
+.message-thinking {
+  color: var(--color-thinking);
+  font-style: italic;
+  padding: 8px;
+  border-left: 2px solid var(--color-thinking);
+  margin: 8px 0;
+  background: rgba(163, 113, 247, 0.1);
+}
+
+.message-tool {
+  background: rgba(240, 136, 62, 0.1);
+  border: 1px solid rgba(240, 136, 62, 0.3);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 13px;
+}
+
+.message-tool-header {
+  color: var(--color-tool);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.message-tool-content {
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Mode toggles */
+.mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mode-toggle-default {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.mode-toggle-active {
+  background: var(--color-accent);
+  color: white;
+}
+
+.mode-toggle-danger {
+  background: var(--color-error);
+  color: white;
+}
+
+/* Input field */
+.chat-input {
+  width: 100%;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  resize: none;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.chat-input:focus {
+  border-color: var(--color-accent);
+}
+
+.chat-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Slash command autocomplete */
+.slash-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  margin-bottom: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.slash-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.slash-item:hover,
+.slash-item-selected {
+  background: var(--color-bg-tertiary);
+}
+
+.slash-item-name {
+  color: var(--color-accent);
+  font-weight: 500;
+  margin-right: 8px;
+}
+
+.slash-item-desc {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+/* Sidebar */
+.sidebar {
+  background: var(--color-bg-secondary);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 600;
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+/* Session card */
+.session-card {
+  padding: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+  margin-bottom: 4px;
+}
+
+.session-card:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.session-card-path {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.session-card-meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* Overseer panel */
+.overseer-panel {
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.overseer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+}
+
+.overseer-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.overseer-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.overseer-status-idle {
+  background: var(--color-text-muted);
+}
+
+.overseer-status-thinking {
+  background: var(--color-accent);
+  animation: pulse 1.5s infinite;
+}
+
+.overseer-status-sleeping {
+  background: var(--color-warning);
+}
+
+.overseer-status-acting {
+  background: var(--color-success);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.overseer-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.overseer-input {
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+  outline: none;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.btn-secondary {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+}
+
+.btn-secondary:hover {
+  background: var(--color-border);
+}
+
+.btn-icon {
+  padding: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.btn-icon:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+/* Grid layout */
+.terminal-grid {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  height: 100%;
+}
+
+/* Search input */
+.search-input {
+  width: 100%;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: var(--color-accent);
+}
+
+/* Status badge */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.status-idle {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.status-thinking {
+  background: rgba(88, 166, 255, 0.2);
+  color: var(--color-accent);
+}
+
+.status-running_tool {
+  background: rgba(240, 136, 62, 0.2);
+  color: var(--color-tool);
+}
+
+.status-waiting_input {
+  background: rgba(210, 153, 34, 0.2);
+  color: var(--color-warning);
+}
+
+.status-error {
+  background: rgba(248, 81, 73, 0.2);
+  color: var(--color-error);
+}
+
+/* Highlight in search results */
+mark {
+  background: rgba(210, 153, 34, 0.3);
+  color: var(--color-text-primary);
+  padding: 0 2px;
+  border-radius: 2px;
+}
