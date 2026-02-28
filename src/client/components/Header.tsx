@@ -15,7 +15,7 @@ export function Header() {
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
 
   const handleNewTerminal = () => {
-    const cwd = prompt('Working directory:', '~');
+    const cwd = prompt('Working directory:', '/Users/cameronhightower/Software_Projects');
     if (cwd) {
       spawn({ cwd, model: selectedModel });
     }

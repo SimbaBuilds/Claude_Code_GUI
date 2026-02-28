@@ -8,8 +8,11 @@ Browser-based GUI for Claude Code with multi-terminal support, overseer agent, a
 # Install dependencies
 bun install
 
-# Build frontend
+# Build frontend (JS)
 bun run build
+
+# Build CSS (after making style changes)
+npx @tailwindcss/cli -i src/client/styles/globals.css -o dist/client/styles/globals.css
 
 # Start server
 bun run start

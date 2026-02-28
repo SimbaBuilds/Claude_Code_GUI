@@ -188,6 +188,7 @@ async function handleMessage(ws: WS, message: ClientMessage): Promise<void> {
 
       case 'history:getSessions': {
         const sessions = historyService.getSessions(message.limit, message.offset);
+        console.log(`history:getSessions returning ${sessions.length} sessions`);
         send(ws, { type: 'history:sessions', sessions });
         break;
       }
@@ -299,6 +300,11 @@ const server = Bun.serve({
           conditions: overseerAgent.getWakeConditions(),
         });
       }
+
+      // Send history sessions automatically on connect
+      const sessions = historyService.getSessions(50, 0);
+      console.log(`WebSocket open: sending ${sessions.length} sessions`);
+      send(ws, { type: 'history:sessions', sessions });
     },
 
     message(ws, message) {

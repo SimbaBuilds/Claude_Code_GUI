@@ -37,10 +37,12 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   loading: false,
 
   loadSessions: (ws) => {
+    console.log('loadSessions called, ws ready:', ws?.readyState === WebSocket.OPEN);
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     set({ loading: true });
     const message: ClientMessage = { type: 'history:getSessions', limit: 50 };
+    console.log('Sending history:getSessions message');
     ws.send(JSON.stringify(message));
   },
 
@@ -90,8 +92,10 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   },
 
   handleMessage: (message) => {
+    console.log('History store received:', message.type, message);
     switch (message.type) {
       case 'history:sessions': {
+        console.log('Setting sessions:', message.sessions?.length, 'sessions');
         set({ sessions: message.sessions, loading: false });
         break;
       }
