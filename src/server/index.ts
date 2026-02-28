@@ -7,10 +7,21 @@ import type { ServerWebSocket } from 'bun';
 import { TerminalManager } from './terminal-manager';
 import { HistoryService } from './history-service';
 import { OverseerAgent } from './overseer-agent';
+import { TelegramBridge } from './telegram-bridge';
+import { SlackBridge } from './slack-bridge';
 import type { ClientMessage, ServerMessage } from '../shared/protocol';
 import type { LayoutConfig } from '../shared/types';
 
 const PORT = process.env.PORT || 3000;
+
+// Telegram config
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+// Slack config
+const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;       // xoxb-...
+const SLACK_APP_TOKEN = process.env.SLACK_APP_TOKEN;       // xapp-...
+const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
 const DATA_DIR = join(homedir(), '.claude-code-gui');
 const DB_PATH = join(DATA_DIR, 'history.db');
 const LAYOUT_PATH = join(DATA_DIR, 'layout.json');
@@ -25,6 +36,37 @@ const overseerAgent = new OverseerAgent(terminalManager, historyService);
 
 // Start history sync
 await historyService.startWatching();
+
+// Initialize Telegram bridge if token is provided
+let telegramBridge: TelegramBridge | null = null;
+if (TELEGRAM_BOT_TOKEN) {
+  const allowedChatIds = TELEGRAM_CHAT_ID ? [parseInt(TELEGRAM_CHAT_ID, 10)] : [];
+  telegramBridge = new TelegramBridge(
+    { botToken: TELEGRAM_BOT_TOKEN, allowedChatIds },
+    terminalManager,
+    overseerAgent
+  );
+  await telegramBridge.start();
+} else {
+  console.log('Telegram: No bot token provided. Set TELEGRAM_BOT_TOKEN to enable.');
+}
+
+// Initialize Slack bridge if tokens are provided
+let slackBridge: SlackBridge | null = null;
+if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN && SLACK_SIGNING_SECRET) {
+  slackBridge = new SlackBridge(
+    {
+      botToken: SLACK_BOT_TOKEN,
+      appToken: SLACK_APP_TOKEN,
+      signingSecret: SLACK_SIGNING_SECRET,
+    },
+    terminalManager,
+    overseerAgent
+  );
+  await slackBridge.start();
+} else {
+  console.log('Slack: Missing tokens. Set SLACK_BOT_TOKEN, SLACK_APP_TOKEN, and SLACK_SIGNING_SECRET to enable.');
+}
 
 // Track connected WebSocket clients
 type WS = ServerWebSocket<unknown>;
@@ -280,8 +322,10 @@ const server = Bun.serve({
 console.log(`Claude Code GUI server running on http://localhost:${server.port}`);
 
 // Graceful shutdown
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\nShutting down...');
+  telegramBridge?.stop();
+  await slackBridge?.stop();
   historyService.close();
   process.exit(0);
 });
