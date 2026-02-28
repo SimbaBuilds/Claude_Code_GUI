@@ -64,11 +64,19 @@ export interface ToolUse {
 // Overseer types
 export type OverseerStatus = 'idle' | 'thinking' | 'sleeping' | 'acting';
 
+export interface OverseerToolCall {
+  name: string;
+  input: Record<string, unknown>;
+  result?: string;
+  status: 'running' | 'completed' | 'error';
+}
+
 export interface OverseerMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'tool';
   content: string;
   timestamp: number;
   action?: OverseerAction;
+  toolCall?: OverseerToolCall;
 }
 
 export interface OverseerAction {
@@ -100,4 +108,14 @@ export interface TerminalLayoutItem {
   row: number;
   colSpan: number;
   rowSpan: number;
+}
+
+// Session discovery types (for resuming past sessions)
+export interface DiscoveredSession {
+  id: string;
+  projectPath: string;
+  projectHash: string;
+  lastModified: string; // ISO date string for serialization
+  messageCount: number;
+  preview?: string; // First user message
 }

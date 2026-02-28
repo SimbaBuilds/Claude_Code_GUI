@@ -55,8 +55,8 @@ export class SlackBridge extends EventEmitter {
       await args.next();
     });
 
-    // Track threads where bot was mentioned (channel -> thread_ts)
-    const activeThreads = new Map<string, string>();
+    // Track all threads where bot was mentioned (Set of "channel:thread_ts")
+    const activeThreads = new Set<string>();
 
     // Handle direct messages and mentions
     this.app.event('app_mention', async ({ event, say }) => {
@@ -69,8 +69,9 @@ export class SlackBridge extends EventEmitter {
       this.activeChannel = event.channel;
       this.activeThreadTs = threadTs;
 
-      activeThreads.set(event.channel, threadTs);
-      console.log(`Slack: Tracking thread ${event.channel}:${threadTs}`);
+      const threadKey = `${event.channel}:${threadTs}`;
+      activeThreads.add(threadKey);
+      console.log(`Slack: Tracking thread ${threadKey} (total: ${activeThreads.size})`);
 
       if (text) {
         await this.overseerAgent.chat(text);
@@ -101,9 +102,9 @@ export class SlackBridge extends EventEmitter {
 
       // Handle thread replies in active threads (where bot was mentioned)
       if (evt.thread_ts) {
-        const trackedThread = activeThreads.get(event.channel);
-        console.log(`Slack: Checking thread_ts=${evt.thread_ts}, tracked=${trackedThread}`);
-        if (trackedThread === evt.thread_ts) {
+        const threadKey = `${event.channel}:${evt.thread_ts}`;
+        console.log(`Slack: Checking thread ${threadKey}, tracked=${activeThreads.has(threadKey)}`);
+        if (activeThreads.has(threadKey)) {
           console.log(`Slack: Thread reply "${evt.text}"`);
           this.activeChannel = event.channel;
           this.activeThreadTs = evt.thread_ts;

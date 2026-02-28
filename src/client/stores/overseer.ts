@@ -13,6 +13,8 @@ interface OverseerState {
   // Actions
   chat: (message: string, ws: WebSocket | null) => void;
   wake: (ws: WebSocket | null) => void;
+  abort: (ws: WebSocket | null) => void;
+  clearChat: (ws: WebSocket | null) => void;
   togglePanel: () => void;
   setPanel: (open: boolean) => void;
 
@@ -37,6 +39,20 @@ export const useOverseerStore = create<OverseerState>((set, get) => ({
     if (!ws) return;
 
     const clientMessage: ClientMessage = { type: 'overseer:wake' };
+    ws.send(JSON.stringify(clientMessage));
+  },
+
+  abort: (ws) => {
+    if (!ws) return;
+
+    const clientMessage: ClientMessage = { type: 'overseer:abort' };
+    ws.send(JSON.stringify(clientMessage));
+  },
+
+  clearChat: (ws) => {
+    if (!ws) return;
+
+    const clientMessage: ClientMessage = { type: 'overseer:clear' };
     ws.send(JSON.stringify(clientMessage));
   },
 
@@ -68,6 +84,16 @@ export const useOverseerStore = create<OverseerState>((set, get) => ({
       }
 
       case 'overseer:awake': {
+        set({ status: 'idle', wakeConditions: [] });
+        break;
+      }
+
+      case 'overseer:cleared': {
+        set({ messages: [] });
+        break;
+      }
+
+      case 'overseer:aborted': {
         set({ status: 'idle', wakeConditions: [] });
         break;
       }

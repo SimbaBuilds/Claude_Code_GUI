@@ -2,6 +2,8 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { EventEmitter } from 'events';
+import { existsSync } from 'fs';
+import { resolve, isAbsolute } from 'path';
 import type { TerminalManager } from './terminal-manager';
 import type { HistoryService } from './history-service';
 import type {
@@ -12,14 +14,23 @@ import type {
   PermissionMode,
 } from '../shared/types';
 
+const PROJECTS_DIR = '/Users/cameronhightower/Software_Projects';
+
 const SYSTEM_PROMPT = `You are an overseer agent managing multiple Claude Code terminal sessions in a GUI application.
+
+IMPORTANT VISIBILITY NOTE: You can only see and control terminals that were opened through this GUI.
+Claude Code sessions running in VS Code, Cursor, or other terminals are not visible to you.
+Use the spawn_terminal tool to create terminals you can manage.
+
+IMPORTANT: The user's projects are located in: ${PROJECTS_DIR}
+When spawning terminals, always use FULL ABSOLUTE PATHS. If the user says "SKMD directory", use "${PROJECTS_DIR}/SKMD".
 
 You have access to these tools to monitor and control the terminals:
 
-1. list_terminals - Get status of all active terminals
+1. list_terminals - Get status of all active terminals (only shows GUI-managed terminals)
 2. get_terminal_buffer - Read recent output from a specific terminal
 3. send_to_terminal - Send a message or command to a terminal
-4. spawn_terminal - Create a new Claude Code terminal
+4. spawn_terminal - Create a new Claude Code terminal (MUST use absolute paths)
 5. kill_terminal - Terminate a terminal
 6. set_permission_mode - Change a terminal's permission mode (default, acceptEdits, bypassPermissions, plan)
 7. search_history - Search past chat sessions
@@ -173,6 +184,8 @@ export class OverseerAgent extends EventEmitter {
   private sleeping = false;
   private wakeConditions: WakeCondition[] = [];
   private wakeResolver: (() => void) | null = null;
+  private abortController: AbortController | null = null;
+  private isAborted = false;
 
   constructor(
     terminalManager: TerminalManager,
@@ -193,6 +206,10 @@ export class OverseerAgent extends EventEmitter {
       this.wake();
     }
 
+    // Reset abort state for new chat
+    this.isAborted = false;
+    this.abortController = new AbortController();
+
     this.updateStatus('thinking');
 
     this.conversationHistory.push({
@@ -206,7 +223,15 @@ export class OverseerAgent extends EventEmitter {
       timestamp: Date.now(),
     });
 
-    await this.runAgentLoop();
+    try {
+      await this.runAgentLoop();
+    } catch (error) {
+      if (this.isAborted) {
+        // Aborted - already handled
+        return;
+      }
+      throw error;
+    }
   }
 
   private async runAgentLoop(): Promise<void> {
@@ -214,14 +239,24 @@ export class OverseerAgent extends EventEmitter {
     let turns = 0;
 
     while (turns < MAX_TURNS) {
+      // Check for abort
+      if (this.isAborted) {
+        return;
+      }
+
       turns++;
       const response = await this.client.messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-5-20250929',
         max_tokens: 4096,
         system: SYSTEM_PROMPT,
         tools: TOOLS as Anthropic.Tool[],
         messages: this.conversationHistory,
       });
+
+      // Check for abort after API call
+      if (this.isAborted) {
+        return;
+      }
 
       // Add assistant response to history
       this.conversationHistory.push({
@@ -268,7 +303,45 @@ export class OverseerAgent extends EventEmitter {
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
       for (const toolUse of toolUses) {
+        // Check for abort before each tool
+        if (this.isAborted) {
+          return;
+        }
+
+        // Emit tool start message
+        this.emitMessage({
+          role: 'tool',
+          content: `Using ${toolUse.name}...`,
+          timestamp: Date.now(),
+          toolCall: {
+            name: toolUse.name,
+            input: toolUse.input as Record<string, unknown>,
+            status: 'running',
+          },
+        });
+
         const result = await this.executeTool(toolUse.name, toolUse.input as Record<string, unknown>);
+
+        // Check for abort after tool execution
+        if (this.isAborted) {
+          return;
+        }
+
+        // Emit tool completion message
+        const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+        const isError = typeof result === 'object' && result !== null && 'error' in result;
+
+        this.emitMessage({
+          role: 'tool',
+          content: isError ? `${toolUse.name} failed` : `${toolUse.name} completed`,
+          timestamp: Date.now(),
+          toolCall: {
+            name: toolUse.name,
+            input: toolUse.input as Record<string, unknown>,
+            result: resultStr,
+            status: isError ? 'error' : 'completed',
+          },
+        });
 
         // Check if this was a sleep tool
         if (toolUse.name === 'sleep' && this.sleeping) {
@@ -281,7 +354,7 @@ export class OverseerAgent extends EventEmitter {
         toolResults.push({
           type: 'tool_result',
           tool_use_id: toolUse.id,
-          content: typeof result === 'string' ? result : JSON.stringify(result),
+          content: resultStr,
         });
       }
 
@@ -309,8 +382,20 @@ export class OverseerAgent extends EventEmitter {
         return { success: true };
 
       case 'spawn_terminal': {
+        let cwd = input.cwd as string;
+
+        // Resolve relative paths against the projects directory
+        if (!isAbsolute(cwd)) {
+          cwd = resolve(PROJECTS_DIR, cwd);
+        }
+
+        // Validate path exists
+        if (!existsSync(cwd)) {
+          return { error: `Directory does not exist: ${cwd}. Please use a valid absolute path.` };
+        }
+
         const options: SpawnOptions = {
-          cwd: input.cwd as string,
+          cwd,
           model: input.model as string,
           permissionMode: input.permission_mode as PermissionMode,
           dangerouslySkipPermissions: input.dangerously_skip_permissions as boolean,
@@ -450,5 +535,38 @@ export class OverseerAgent extends EventEmitter {
 
   getWakeConditions(): WakeCondition[] {
     return this.wakeConditions;
+  }
+
+  clearHistory(): void {
+    this.conversationHistory = [];
+    this.emit('cleared');
+  }
+
+  abort(): void {
+    if (this.status === 'idle') return;
+
+    this.isAborted = true;
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+
+    // Also wake if sleeping
+    if (this.sleeping) {
+      this.sleeping = false;
+      this.wakeConditions = [];
+      if (this.wakeResolver) {
+        this.wakeResolver();
+        this.wakeResolver = null;
+      }
+    }
+
+    this.updateStatus('idle');
+    this.emitMessage({
+      role: 'assistant',
+      content: '(Operation cancelled)',
+      timestamp: Date.now(),
+    });
+    this.emit('aborted');
   }
 }

@@ -471,3 +471,129 @@ mark {
   padding: 0 2px;
   border-radius: 2px;
 }
+
+/* Tool call messages in overseer panel */
+.tool-call-message {
+  background: rgba(240, 136, 62, 0.1);
+  border: 1px solid rgba(240, 136, 62, 0.25);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-call-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.tool-call-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-tool);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.tool-call-name {
+  color: var(--color-tool);
+  font-weight: 500;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+}
+
+.tool-call-details {
+  margin-top: 8px;
+}
+
+.tool-call-summary {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.tool-call-summary:hover {
+  color: var(--color-text-secondary);
+}
+
+.tool-call-input,
+.tool-call-result {
+  background: var(--color-bg-primary);
+  border-radius: 4px;
+  padding: 8px;
+  margin-top: 4px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+/* Cancel/Danger button */
+.btn-danger {
+  background: var(--color-error);
+  color: white;
+}
+
+.btn-danger:hover {
+  background: #e53b31;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Sleep state indicator in header */
+.sleep-indicator {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px;
+  background: rgba(210, 153, 34, 0.1);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+}
+
+.sleep-indicator-title {
+  color: var(--color-warning);
+  font-weight: 500;
+}
+
+.sleep-indicator-conditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sleep-condition {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(210, 153, 34, 0.15);
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.sleep-condition-icon {
+  color: var(--color-warning);
+}

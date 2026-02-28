@@ -5,10 +5,12 @@ import { useTerminalStore } from './stores/terminals';
 import { useOverseerStore } from './stores/overseer';
 import { useHistoryStore } from './stores/history';
 import { useLayoutStore } from './stores/layout';
+import { useSessionsStore } from './stores/sessions';
 import { TerminalGrid } from './components/TerminalGrid';
 import { HistorySidebar } from './components/HistorySidebar';
 import { OverseerPanel } from './components/OverseerPanel';
 import { Header } from './components/Header';
+import { SessionBrowser } from './components/SessionBrowser';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { ServerMessage } from '../shared/protocol';
 
@@ -20,6 +22,7 @@ export function App() {
   const { handleMessage: handleOverseerMessage } = useOverseerStore();
   const { handleMessage: handleHistoryMessage } = useHistoryStore();
   const { handleMessage: handleLayoutMessage, load: loadLayout, historySidebarOpen, overseerPanelOpen, overseerPanelHeight } = useLayoutStore();
+  const { handleMessage: handleSessionsMessage, isOpen: sessionBrowserOpen, setOpen: setSessionBrowserOpen } = useSessionsStore();
 
   // Connect WebSocket on mount
   useEffect(() => {
@@ -43,6 +46,8 @@ export function App() {
           handleHistoryMessage(message);
         } else if (message.type.startsWith('layout:')) {
           handleLayoutMessage(message);
+        } else if (message.type.startsWith('sessions:')) {
+          handleSessionsMessage(message);
         }
       } catch (error) {
         console.error('Failed to parse message:', error);
@@ -54,7 +59,7 @@ export function App() {
     return () => {
       ws.removeEventListener('message', handleMessage);
     };
-  }, [ws, handleTerminalMessage, handleOverseerMessage, handleHistoryMessage, handleLayoutMessage]);
+  }, [ws, handleTerminalMessage, handleOverseerMessage, handleHistoryMessage, handleLayoutMessage, handleSessionsMessage]);
 
   // Load initial data when connected
   useEffect(() => {
@@ -86,6 +91,11 @@ export function App() {
         {/* History sidebar */}
         {historySidebarOpen && <HistorySidebar />}
       </div>
+
+      {/* Session browser modal */}
+      {sessionBrowserOpen && (
+        <SessionBrowser onClose={() => setSessionBrowserOpen(false)} />
+      )}
     </div>
   );
 }

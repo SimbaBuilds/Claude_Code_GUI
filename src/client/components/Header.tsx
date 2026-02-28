@@ -4,6 +4,7 @@ import { useTerminalStore } from '../stores/terminals';
 import { useOverseerStore } from '../stores/overseer';
 import { useHistoryStore } from '../stores/history';
 import { useLayoutStore } from '../stores/layout';
+import { useSessionsStore } from '../stores/sessions';
 import { MODELS, DEFAULT_MODEL } from '../../shared/constants';
 import { useState } from 'react';
 
@@ -12,6 +13,7 @@ export function Header() {
   const { status: overseerStatus, togglePanel: toggleOverseer, panelOpen: overseerOpen } = useOverseerStore();
   const { toggleSidebar: toggleHistory, sidebarOpen: historyOpen } = useHistoryStore();
   const { save: saveLayout } = useLayoutStore();
+  const { setOpen: setSessionBrowserOpen } = useSessionsStore();
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
 
   const handleNewTerminal = () => {
@@ -40,6 +42,18 @@ export function Header() {
             <path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z" />
           </svg>
           New Terminal
+        </button>
+
+        <button
+          onClick={() => setSessionBrowserOpen(true)}
+          className="btn btn-secondary"
+          title="Resume a past session"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 3a5 5 0 00-4.546 2.914.5.5 0 01-.908-.418A6 6 0 0114 8a.5.5 0 01-1 0 5 5 0 00-5-5z" />
+            <path d="M8 13a5 5 0 004.546-2.914.5.5 0 01.908.418A6 6 0 012 8a.5.5 0 011 0 5 5 0 005 5z" />
+          </svg>
+          Resume Session
         </button>
 
         <select

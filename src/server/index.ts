@@ -1,4 +1,5 @@
 // Main server entry point - HTTP + WebSocket server
+// Testing GUI interaction - Claude Code GUI is working!
 
 import { join } from 'path';
 import { readFile, mkdir } from 'fs/promises';
@@ -7,6 +8,7 @@ import type { ServerWebSocket } from 'bun';
 import { TerminalManager } from './terminal-manager';
 import { HistoryService } from './history-service';
 import { OverseerAgent } from './overseer-agent';
+import { SessionDiscoveryService } from './session-discovery';
 import { TelegramBridge } from './telegram-bridge';
 import { SlackBridge } from './slack-bridge';
 import type { ClientMessage, ServerMessage } from '../shared/protocol';
@@ -33,6 +35,7 @@ await mkdir(DATA_DIR, { recursive: true });
 const terminalManager = new TerminalManager();
 const historyService = new HistoryService(DB_PATH);
 const overseerAgent = new OverseerAgent(terminalManager, historyService);
+const sessionDiscovery = new SessionDiscoveryService();
 
 // Start history sync
 await historyService.startWatching();
@@ -86,6 +89,10 @@ function send(ws: WS, message: ServerMessage): void {
 }
 
 // Wire up terminal manager events
+terminalManager.on('spawned', (terminal) => {
+  broadcast({ type: 'terminal:spawned', terminal });
+});
+
 terminalManager.on('output', (id: string, data: string) => {
   broadcast({ type: 'terminal:output', id, data });
 });
@@ -125,6 +132,14 @@ overseerAgent.on('sleeping', (conditions) => {
 
 overseerAgent.on('awake', () => {
   broadcast({ type: 'overseer:awake' });
+});
+
+overseerAgent.on('cleared', () => {
+  broadcast({ type: 'overseer:cleared' });
+});
+
+overseerAgent.on('aborted', () => {
+  broadcast({ type: 'overseer:aborted' });
 });
 
 // Wire up history events
@@ -180,6 +195,16 @@ async function handleMessage(ws: WS, message: ClientMessage): Promise<void> {
         break;
       }
 
+      case 'overseer:abort': {
+        overseerAgent.abort();
+        break;
+      }
+
+      case 'overseer:clear': {
+        overseerAgent.clearHistory();
+        break;
+      }
+
       case 'history:search': {
         const results = await historyService.searchMessages(message.query);
         send(ws, { type: 'history:searchResults', results });
@@ -202,6 +227,27 @@ async function handleMessage(ws: WS, message: ClientMessage): Promise<void> {
       case 'history:sync': {
         const count = await historyService.sync();
         send(ws, { type: 'history:syncComplete', sessionCount: count });
+        break;
+      }
+
+      case 'sessions:discover': {
+        const discoveredSessions = await sessionDiscovery.discoverSessions(message.limit || 50);
+        // Convert Date to ISO string for serialization
+        const serializedSessions = discoveredSessions.map((s) => ({
+          ...s,
+          lastModified: s.lastModified.toISOString(),
+        }));
+        send(ws, { type: 'sessions:discovered', sessions: serializedSessions });
+        break;
+      }
+
+      case 'sessions:resume': {
+        // Spawn terminal with resume flag
+        const terminal = terminalManager.spawn({
+          cwd: message.projectPath,
+          resumeSessionId: message.sessionId,
+        });
+        broadcast({ type: 'terminal:spawned', terminal });
         break;
       }
 
@@ -330,6 +376,17 @@ console.log(`Claude Code GUI server running on http://localhost:${server.port}`)
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\nShutting down...');
+  terminalManager.shutdown();
+  telegramBridge?.stop();
+  await slackBridge?.stop();
+  historyService.close();
+  process.exit(0);
+});
+
+// Also handle SIGTERM for containerized deployments
+process.on('SIGTERM', async () => {
+  console.log('\nReceived SIGTERM, shutting down...');
+  terminalManager.shutdown();
   telegramBridge?.stop();
   await slackBridge?.stop();
   historyService.close();

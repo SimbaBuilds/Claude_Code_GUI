@@ -12,6 +12,7 @@ import type {
   WakeCondition,
   PermissionMode,
   LayoutConfig,
+  DiscoveredSession,
 } from './types';
 
 // Client -> Server messages
@@ -24,10 +25,14 @@ export type ClientMessage =
   | { type: 'terminal:setMode'; id: string; mode: PermissionMode }
   | { type: 'overseer:chat'; message: string }
   | { type: 'overseer:wake' }
+  | { type: 'overseer:abort' }
+  | { type: 'overseer:clear' }
   | { type: 'history:search'; query: string }
   | { type: 'history:getSessions'; limit?: number; offset?: number }
   | { type: 'history:getMessages'; sessionId: string }
   | { type: 'history:sync' }
+  | { type: 'sessions:discover'; limit?: number }
+  | { type: 'sessions:resume'; sessionId: string; projectPath: string }
   | { type: 'layout:save'; layout: LayoutConfig }
   | { type: 'layout:load' };
 
@@ -56,11 +61,14 @@ export type ServerMessage =
   | { type: 'overseer:status'; status: OverseerStatus }
   | { type: 'overseer:sleeping'; conditions: WakeCondition[] }
   | { type: 'overseer:awake' }
+  | { type: 'overseer:aborted' }
+  | { type: 'overseer:cleared' }
   | { type: 'history:sessions'; sessions: Session[] }
   | { type: 'history:messages'; sessionId: string; messages: HistoryMessage[] }
   | { type: 'history:searchResults'; results: SearchResult[] }
   | { type: 'history:syncComplete'; sessionCount: number }
   | { type: 'layout:loaded'; layout: LayoutConfig | null }
+  | { type: 'sessions:discovered'; sessions: DiscoveredSession[] }
   | { type: 'error'; error: string };
 
 export interface SearchResult {

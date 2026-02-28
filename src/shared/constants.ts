@@ -53,7 +53,7 @@ export const KEY_SEQUENCES: Record<string, string> = {
 // Default models
 export const MODELS = [
   { id: 'opus', name: 'Claude Opus 4.5', description: 'Most capable' },
-  { id: 'sonnet', name: 'Claude Sonnet 4', description: 'Balanced' },
+  { id: 'sonnet', name: 'Claude Sonnet 4.5', description: 'Balanced' },
   { id: 'haiku', name: 'Claude Haiku 3.5', description: 'Fastest' },
 ];
 

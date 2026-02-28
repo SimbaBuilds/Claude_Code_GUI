@@ -22,21 +22,7 @@ Open http://localhost:3001
 
 ## Run with Slack Integration
 
-```bash
-PORT=3001 \
-SLACK_BOT_TOKEN="xoxb-..." \
-SLACK_APP_TOKEN="xapp-..." \
-SLACK_SIGNING_SECRET="..." \
-bun run start
-```
-
-## Run with Telegram Integration
-
-```bash
-PORT=3001 \
-TELEGRAM_BOT_TOKEN="123456789:ABC..." \
-bun run start
-```
+See Makefiel for more commands
 
 ## Environment Variables
 

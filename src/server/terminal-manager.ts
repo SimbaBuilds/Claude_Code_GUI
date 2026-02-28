@@ -60,7 +60,9 @@ export class TerminalManager extends EventEmitter {
     this.terminals.set(id, terminal);
     console.log(`Created terminal ${id} for cwd: ${options.cwd}`);
 
-    return this.getInfo(id)!;
+    const info = this.getInfo(id)!;
+    this.emit('spawned', info);
+    return info;
   }
 
   async send(id: string, input: string): Promise<void> {
@@ -365,5 +367,12 @@ export class TerminalManager extends EventEmitter {
 
   getStatus(id: string): TerminalStatus | undefined {
     return this.terminals.get(id)?.status;
+  }
+
+  shutdown(): void {
+    console.log(`Shutting down ${this.terminals.size} terminals...`);
+    for (const [id] of this.terminals) {
+      this.kill(id);
+    }
   }
 }
