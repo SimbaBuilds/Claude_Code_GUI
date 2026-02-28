@@ -210,7 +210,11 @@ export class OverseerAgent extends EventEmitter {
   }
 
   private async runAgentLoop(): Promise<void> {
-    while (true) {
+    const MAX_TURNS = 10;
+    let turns = 0;
+
+    while (turns < MAX_TURNS) {
+      turns++;
       const response = await this.client.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 4096,
@@ -245,6 +249,16 @@ export class OverseerAgent extends EventEmitter {
       );
 
       if (toolUses.length === 0 || response.stop_reason === 'end_turn') {
+        this.updateStatus('idle');
+        break;
+      }
+
+      if (turns >= MAX_TURNS) {
+        this.emitMessage({
+          role: 'assistant',
+          content: '(Reached maximum turns limit)',
+          timestamp: Date.now(),
+        });
         this.updateStatus('idle');
         break;
       }

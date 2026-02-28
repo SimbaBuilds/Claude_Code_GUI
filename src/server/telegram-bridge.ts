@@ -50,9 +50,9 @@ export class TelegramBridge extends EventEmitter {
     this.overseerAgent = overseerAgent;
 
     // Listen to overseer responses
-    this.overseerAgent.on('message', (message: string) => {
-      if (this.activeChatId) {
-        this.sendMessage(this.activeChatId, message);
+    this.overseerAgent.on('message', (message: { role: string; content: string; timestamp: number }) => {
+      if (this.activeChatId && message.role === 'assistant') {
+        this.sendMessage(this.activeChatId, message.content);
       }
     });
   }

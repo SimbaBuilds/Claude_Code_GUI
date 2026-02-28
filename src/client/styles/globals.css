@@ -279,6 +279,36 @@ body {
   padding: 8px 16px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-tertiary);
+  user-select: none;
+}
+
+.overseer-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.overseer-expand-btn:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.overseer-chevron {
+  transition: transform 0.2s ease;
+  transform: rotate(-90deg);
+}
+
+.overseer-chevron.expanded {
+  transform: rotate(0deg);
 }
 
 .overseer-status {

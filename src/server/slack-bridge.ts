@@ -16,6 +16,7 @@ export class SlackBridge extends EventEmitter {
   private terminalManager: TerminalManager;
   private overseerAgent: OverseerAgent;
   private activeChannel: string | null = null;
+  private activeThreadTs: string | null = null;
 
   constructor(
     config: SlackConfig,
@@ -37,38 +38,78 @@ export class SlackBridge extends EventEmitter {
     this.setupHandlers();
 
     // Listen to overseer responses
-    this.overseerAgent.on('message', (message: string) => {
-      if (this.activeChannel) {
-        this.sendMessage(this.activeChannel, message);
+    this.overseerAgent.on('message', (message: { role: string; content: string; timestamp: number }) => {
+      if (this.activeChannel && message.role === 'assistant') {
+        this.sendMessage(this.activeChannel, message.content);
       }
     });
   }
 
   private setupHandlers(): void {
+    // Log all events for debugging
+    this.app.use(async (args) => {
+      console.log('Slack middleware:', Object.keys(args));
+      if (args.body) {
+        console.log('Slack body:', JSON.stringify(args.body).slice(0, 300));
+      }
+      await args.next();
+    });
+
+    // Track threads where bot was mentioned (channel -> thread_ts)
+    const activeThreads = new Map<string, string>();
+
     // Handle direct messages and mentions
     this.app.event('app_mention', async ({ event, say }) => {
       const text = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
       console.log(`Slack: Mentioned with "${text}"`);
 
+      // Use existing thread_ts or the message ts as thread parent
+      const threadTs = (event as any).thread_ts || event.ts;
+
       this.activeChannel = event.channel;
+      this.activeThreadTs = threadTs;
+
+      activeThreads.set(event.channel, threadTs);
+      console.log(`Slack: Tracking thread ${event.channel}:${threadTs}`);
 
       if (text) {
         await this.overseerAgent.chat(text);
       } else {
-        await say('Hi! I\'m the Claude Code Overseer. Ask me anything about your terminals, or use `/claude-status` to check system status.');
+        // Reply in thread
+        await say({ text: 'Hi! I\'m the Claude Code Overseer. Ask me anything about your terminals, or use `/claude-status` to check system status.', thread_ts: threadTs });
       }
     });
 
     this.app.event('message', async ({ event, say }) => {
-      // Only respond to DMs (not channel messages unless mentioned)
-      if ((event as any).channel_type !== 'im') return;
-      if ((event as any).bot_id) return; // Ignore bot messages
+      const evt = event as any;
 
-      const text = (event as any).text;
-      console.log(`Slack: DM received "${text}"`);
+      console.log(`Slack message event: channel_type=${evt.channel_type}, thread_ts=${evt.thread_ts}, bot_id=${evt.bot_id}`);
 
-      this.activeChannel = event.channel;
-      await this.overseerAgent.chat(text);
+      // Ignore bot messages
+      if (evt.bot_id) return;
+
+      // Ignore messages that contain @mentions (handled by app_mention)
+      if (evt.text && evt.text.includes('<@')) return;
+
+      // Handle DMs
+      if (evt.channel_type === 'im') {
+        console.log(`Slack: DM received "${evt.text}"`);
+        this.activeChannel = event.channel;
+        await this.overseerAgent.chat(evt.text);
+        return;
+      }
+
+      // Handle thread replies in active threads (where bot was mentioned)
+      if (evt.thread_ts) {
+        const trackedThread = activeThreads.get(event.channel);
+        console.log(`Slack: Checking thread_ts=${evt.thread_ts}, tracked=${trackedThread}`);
+        if (trackedThread === evt.thread_ts) {
+          console.log(`Slack: Thread reply "${evt.text}"`);
+          this.activeChannel = event.channel;
+          this.activeThreadTs = evt.thread_ts;
+          await this.overseerAgent.chat(evt.text);
+        }
+      }
     });
 
     // Slash command: /claude-status
@@ -259,6 +300,7 @@ export class SlackBridge extends EventEmitter {
         channel,
         text,
         mrkdwn: true,
+        thread_ts: this.activeThreadTs || undefined,
       });
     } catch (error) {
       console.error('Slack: Failed to send message:', error);
