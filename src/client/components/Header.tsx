@@ -5,12 +5,12 @@ import { useOverseerStore } from '../stores/overseer';
 import { useHistoryStore } from '../stores/history';
 import { useLayoutStore } from '../stores/layout';
 import { useSessionsStore } from '../stores/sessions';
-import { MODELS, DEFAULT_MODEL } from '../../shared/constants';
+import { MODELS, DEFAULT_MODEL, OVERSEER_MODELS } from '../../shared/constants';
 import { useState } from 'react';
 
 export function Header() {
   const { spawn, terminals, ws } = useTerminalStore();
-  const { status: overseerStatus, togglePanel: toggleOverseer, panelOpen: overseerOpen } = useOverseerStore();
+  const { status: overseerStatus, togglePanel: toggleOverseer, panelOpen: overseerOpen, model: overseerModel, setModel: setOverseerModel } = useOverseerStore();
   const { toggleSidebar: toggleHistory, sidebarOpen: historyOpen } = useHistoryStore();
   const { save: saveLayout } = useLayoutStore();
   const { setOpen: setSessionBrowserOpen } = useSessionsStore();
@@ -56,17 +56,20 @@ export function Header() {
           Resume Session
         </button>
 
-        <select
-          value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
-          className="bg-bg-tertiary border border-border rounded px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-        >
-          {MODELS.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.name}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-1">
+          <span className="text-text-secondary text-xs">Terminal:</span>
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="bg-bg-tertiary border border-border rounded px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+          >
+            {MODELS.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         {terminalCount > 0 && (
           <span className="text-text-secondary text-sm">
@@ -76,6 +79,21 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <span className="text-text-secondary text-xs">Overseer:</span>
+          <select
+            value={overseerModel}
+            onChange={(e) => setOverseerModel(e.target.value, ws)}
+            className="bg-bg-tertiary border border-border rounded px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+          >
+            {OVERSEER_MODELS.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <button
           onClick={toggleOverseer}
           className={`btn ${overseerOpen ? 'btn-primary' : 'btn-secondary'}`}

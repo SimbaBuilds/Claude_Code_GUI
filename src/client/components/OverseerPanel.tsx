@@ -136,23 +136,6 @@ export function OverseerPanel({ onHeightChange }: OverseerPanelProps) {
           <span className={`overseer-status-dot ${statusClasses[status]}`} />
           <span className="text-text-primary font-medium">Overseer</span>
           <span className="text-text-secondary">{statusLabels[status]}</span>
-          {/* Info tooltip explaining visibility scope */}
-          <div className="relative group ml-2">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              className="text-text-muted cursor-help"
-            >
-              <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 12.5a5.5 5.5 0 110-11 5.5 5.5 0 010 11z" />
-              <path d="M8 6.5a.75.75 0 00-.75.75v3.5a.75.75 0 001.5 0v-3.5A.75.75 0 008 6.5zM8 5.5a.75.75 0 100-1.5.75.75 0 000 1.5z" />
-            </svg>
-            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 p-2 bg-bg-tertiary border border-border rounded-md shadow-lg text-xs text-text-secondary opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 z-50">
-              <p className="font-medium text-text-primary mb-1">Visibility Scope</p>
-              <p>The overseer can only see terminals opened in this GUI. Sessions started in VS Code, Cursor, or other terminals are not visible.</p>
-            </div>
-          </div>
         </div>
 
         <div className="flex items-center gap-2">

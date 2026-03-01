@@ -27,6 +27,7 @@ export type ClientMessage =
   | { type: 'overseer:wake' }
   | { type: 'overseer:abort' }
   | { type: 'overseer:clear' }
+  | { type: 'overseer:setModel'; model: string }
   | { type: 'history:search'; query: string }
   | { type: 'history:getSessions'; limit?: number; offset?: number }
   | { type: 'history:getMessages'; sessionId: string }
@@ -63,6 +64,7 @@ export type ServerMessage =
   | { type: 'overseer:awake' }
   | { type: 'overseer:aborted' }
   | { type: 'overseer:cleared' }
+  | { type: 'overseer:model'; model: string }
   | { type: 'history:sessions'; sessions: Session[] }
   | { type: 'history:messages'; sessionId: string; messages: HistoryMessage[] }
   | { type: 'history:searchResults'; results: SearchResult[] }

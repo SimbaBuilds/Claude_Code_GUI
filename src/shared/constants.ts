@@ -1,4 +1,5 @@
 // Slash commands supported by Claude Code
+// Only includes commands that work in --print mode (non-interactive)
 
 export interface SlashCommand {
   name: string;
@@ -6,37 +7,41 @@ export interface SlashCommand {
   args?: string;
 }
 
+// Commands that work in --print mode and provide unique value
+// (can't be replicated by GUI - require Claude Code internal state)
 export const CLAUDE_SLASH_COMMANDS: SlashCommand[] = [
-  { name: '/help', description: 'Show help information' },
-  { name: '/clear', description: 'Clear conversation history' },
-  { name: '/compact', description: 'Compact conversation to save context' },
-  { name: '/config', description: 'Open configuration settings' },
+  // Unique monitoring (can't replicate - Claude Code internals)
+  { name: '/context', description: 'Show context window usage' },
+  { name: '/usage', description: 'Show plan limits and rate status' },
   { name: '/cost', description: 'Show token usage and costs' },
-  { name: '/doctor', description: 'Run health diagnostics' },
-  { name: '/init', description: 'Initialize project with CLAUDE.md' },
-  { name: '/login', description: 'Authenticate with Anthropic' },
-  { name: '/logout', description: 'Sign out of current session' },
-  { name: '/memory', description: 'Edit CLAUDE.md memory file' },
-  { name: '/model', description: 'Switch AI model', args: '<model>' },
-  { name: '/permissions', description: 'Manage tool permissions' },
-  { name: '/review', description: 'Request code review' },
-  { name: '/status', description: 'Show session status' },
-  { name: '/terminal', description: 'Show terminal information' },
-  { name: '/vim', description: 'Toggle vim keybindings' },
-  { name: '/bug', description: 'Report a bug' },
-  { name: '/pr-comments', description: 'Fetch PR comments' },
+  { name: '/stats', description: 'Show usage statistics' },
+  { name: '/todos', description: 'Show current task list' },
+
+  // Context management (works in --print mode)
+  { name: '/compact', description: 'Compact conversation to save context', args: '[focus]' },
+  { name: '/clear', description: 'Clear conversation history' },
+
+  // Diagnostics (works in --print mode)
+  { name: '/doctor', description: 'Check Claude Code health' },
+  { name: '/debug', description: 'Troubleshoot session', args: '[issue]' },
+
+  // Project setup (works in --print mode)
+  { name: '/init', description: 'Initialize CLAUDE.md' },
+
+  // Mode switching (works in --print mode)
+  { name: '/plan', description: 'Enter plan mode' },
 ];
 
-// GUI-specific slash commands
-export const GUI_SLASH_COMMANDS: SlashCommand[] = [
-  { name: '/new', description: 'Spawn a new terminal' },
-  { name: '/close', description: 'Close current terminal' },
-  { name: '/overseer', description: 'Focus overseer panel' },
-  { name: '/history', description: 'Toggle history sidebar' },
-  { name: '/layout', description: 'Manage layout', args: '<save|reset>' },
-];
+// Note: These commands are INTERACTIVE and don't work well in --print mode.
+// The GUI provides alternatives for these:
+// - /resume → "Resume Session" button
+// - /model → Model dropdown in header
+// - /config, /permissions, /theme → Future: Settings panel
+// - /memory → Future: CLAUDE.md editor
+// - /rewind, /copy, /export → Future: GUI controls
 
-export const ALL_SLASH_COMMANDS = [...CLAUDE_SLASH_COMMANDS, ...GUI_SLASH_COMMANDS];
+// All commands shown in autocomplete (just Claude commands for now)
+export const ALL_SLASH_COMMANDS = CLAUDE_SLASH_COMMANDS;
 
 // Key escape sequences for PTY
 export const KEY_SEQUENCES: Record<string, string> = {
@@ -50,14 +55,23 @@ export const KEY_SEQUENCES: Record<string, string> = {
   'down': '\x1b[B',
 };
 
-// Default models
+// Default models for Claude Code terminals
 export const MODELS = [
   { id: 'opus', name: 'Claude Opus 4.5', description: 'Most capable' },
   { id: 'sonnet', name: 'Claude Sonnet 4.5', description: 'Balanced' },
-  { id: 'haiku', name: 'Claude Haiku 3.5', description: 'Fastest' },
+  { id: 'haiku', name: 'Claude Haiku 4.5', description: 'Fastest' },
 ];
 
 export const DEFAULT_MODEL = 'sonnet';
+
+// Models for Overseer agent (uses full API model IDs)
+export const OVERSEER_MODELS = [
+  { id: 'claude-opus-4-5-20250929', name: 'Opus 4.5', description: 'Most capable' },
+  { id: 'claude-sonnet-4-5-20250929', name: 'Sonnet 4.5', description: 'Balanced' },
+  { id: 'claude-haiku-3-5-20241022', name: 'Haiku 3.5', description: 'Fastest' },
+];
+
+export const DEFAULT_OVERSEER_MODEL = 'claude-sonnet-4-5-20250929';
 
 // Layout defaults
 export const DEFAULT_LAYOUT = {

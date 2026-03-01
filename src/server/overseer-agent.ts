@@ -175,6 +175,8 @@ const TOOLS: Tool[] = [
   },
 ];
 
+const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
+
 export class OverseerAgent extends EventEmitter {
   private client: Anthropic;
   private terminalManager: TerminalManager;
@@ -186,6 +188,7 @@ export class OverseerAgent extends EventEmitter {
   private wakeResolver: (() => void) | null = null;
   private abortController: AbortController | null = null;
   private isAborted = false;
+  private model: string = DEFAULT_MODEL;
 
   constructor(
     terminalManager: TerminalManager,
@@ -246,7 +249,7 @@ export class OverseerAgent extends EventEmitter {
 
       turns++;
       const response = await this.client.messages.create({
-        model: 'claude-sonnet-4-5-20250929',
+        model: this.model,
         max_tokens: 4096,
         system: SYSTEM_PROMPT,
         tools: TOOLS as Anthropic.Tool[],
@@ -540,6 +543,15 @@ export class OverseerAgent extends EventEmitter {
   clearHistory(): void {
     this.conversationHistory = [];
     this.emit('cleared');
+  }
+
+  setModel(model: string): void {
+    this.model = model;
+    this.emit('model', model);
+  }
+
+  getModel(): string {
+    return this.model;
   }
 
   abort(): void {

@@ -3,12 +3,14 @@
 import { create } from 'zustand';
 import type { OverseerMessage, OverseerStatus, WakeCondition } from '../../shared/types';
 import type { ClientMessage, ServerMessage } from '../../shared/protocol';
+import { DEFAULT_OVERSEER_MODEL } from '../../shared/constants';
 
 interface OverseerState {
   status: OverseerStatus;
   messages: OverseerMessage[];
   wakeConditions: WakeCondition[];
   panelOpen: boolean;
+  model: string;
 
   // Actions
   chat: (message: string, ws: WebSocket | null) => void;
@@ -17,6 +19,7 @@ interface OverseerState {
   clearChat: (ws: WebSocket | null) => void;
   togglePanel: () => void;
   setPanel: (open: boolean) => void;
+  setModel: (model: string, ws: WebSocket | null) => void;
 
   // Internal
   handleMessage: (message: ServerMessage) => void;
@@ -27,6 +30,7 @@ export const useOverseerStore = create<OverseerState>((set, get) => ({
   messages: [],
   wakeConditions: [],
   panelOpen: true,
+  model: DEFAULT_OVERSEER_MODEL,
 
   chat: (message, ws) => {
     if (!ws) return;
@@ -64,6 +68,15 @@ export const useOverseerStore = create<OverseerState>((set, get) => ({
     set({ panelOpen: open });
   },
 
+  setModel: (model, ws) => {
+    if (!ws) return;
+
+    const clientMessage: ClientMessage = { type: 'overseer:setModel', model };
+    ws.send(JSON.stringify(clientMessage));
+    // Optimistically update local state
+    set({ model });
+  },
+
   handleMessage: (message) => {
     switch (message.type) {
       case 'overseer:message': {
@@ -95,6 +108,11 @@ export const useOverseerStore = create<OverseerState>((set, get) => ({
 
       case 'overseer:aborted': {
         set({ status: 'idle', wakeConditions: [] });
+        break;
+      }
+
+      case 'overseer:model': {
+        set({ model: message.model });
         break;
       }
     }

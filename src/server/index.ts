@@ -142,6 +142,10 @@ overseerAgent.on('aborted', () => {
   broadcast({ type: 'overseer:aborted' });
 });
 
+overseerAgent.on('model', (model: string) => {
+  broadcast({ type: 'overseer:model', model });
+});
+
 // Wire up history events
 historyService.on('syncComplete', (sessionCount: number) => {
   broadcast({ type: 'history:syncComplete', sessionCount });
@@ -202,6 +206,11 @@ async function handleMessage(ws: WS, message: ClientMessage): Promise<void> {
 
       case 'overseer:clear': {
         overseerAgent.clearHistory();
+        break;
+      }
+
+      case 'overseer:setModel': {
+        overseerAgent.setModel(message.model);
         break;
       }
 
@@ -338,6 +347,10 @@ const server = Bun.serve({
       send(ws, {
         type: 'overseer:status',
         status: overseerAgent.getStatus(),
+      });
+      send(ws, {
+        type: 'overseer:model',
+        model: overseerAgent.getModel(),
       });
 
       if (overseerAgent.isSleeping()) {
