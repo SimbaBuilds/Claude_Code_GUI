@@ -238,16 +238,15 @@ export class OverseerAgent extends EventEmitter {
   }
 
   private async runAgentLoop(): Promise<void> {
-    const MAX_TURNS = 10;
-    let turns = 0;
+    const MAX_ACTIONS = 10;
+    let actionCount = 0;
 
-    while (turns < MAX_TURNS) {
+    while (actionCount < MAX_ACTIONS) {
       // Check for abort
       if (this.isAborted) {
         return;
       }
 
-      turns++;
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: 4096,
@@ -291,10 +290,13 @@ export class OverseerAgent extends EventEmitter {
         break;
       }
 
-      if (turns >= MAX_TURNS) {
+      // Count actions and check limit
+      actionCount += toolUses.length;
+
+      if (actionCount >= MAX_ACTIONS) {
         this.emitMessage({
           role: 'assistant',
-          content: '(Reached maximum turns limit)',
+          content: `(Reached maximum actions limit: ${actionCount}/${MAX_ACTIONS})`,
           timestamp: Date.now(),
         });
         this.updateStatus('idle');
