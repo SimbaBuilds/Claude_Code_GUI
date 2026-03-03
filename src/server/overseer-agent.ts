@@ -238,7 +238,7 @@ export class OverseerAgent extends EventEmitter {
   }
 
   private async runAgentLoop(): Promise<void> {
-    const MAX_ACTIONS = 10;
+    const MAX_ACTIONS = 30;
     let actionCount = 0;
 
     while (actionCount < MAX_ACTIONS) {
