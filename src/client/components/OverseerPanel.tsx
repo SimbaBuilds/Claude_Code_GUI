@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useOverseerStore } from '../stores/overseer';
 import { useTerminalStore } from '../stores/terminals';
 import { useLayoutStore } from '../stores/layout';
+import { Markdown } from './Markdown';
 
 interface OverseerPanelProps {
   onHeightChange?: (height: number) => void;
@@ -286,7 +287,11 @@ export function OverseerPanel({ onHeightChange }: OverseerPanelProps) {
                         : 'bg-bg-tertiary text-text-primary'
                     }`}
                   >
-                    {msg.content}
+                    {msg.role === 'user' ? (
+                      msg.content
+                    ) : (
+                      <Markdown content={msg.content} />
+                    )}
                   </div>
                   <div className="text-xs text-text-muted mt-1">
                     {new Date(msg.timestamp).toLocaleTimeString()}
