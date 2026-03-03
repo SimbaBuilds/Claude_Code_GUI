@@ -2,8 +2,8 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { EventEmitter } from 'events';
-import { existsSync } from 'fs';
-import { resolve, isAbsolute } from 'path';
+import { existsSync, readdirSync, statSync } from 'fs';
+import { resolve, isAbsolute, join } from 'path';
 import type { TerminalManager } from './terminal-manager';
 import type { HistoryService } from './history-service';
 import type {
@@ -16,7 +16,31 @@ import type {
 
 const PROJECTS_DIR = '/Users/cameronhightower/Software_Projects';
 
-const SYSTEM_PROMPT = `You are an overseer agent managing multiple Claude Code terminal sessions in a GUI application.
+function getProjectDirectories(): string[] {
+  try {
+    const entries = readdirSync(PROJECTS_DIR);
+    return entries
+      .map(entry => join(PROJECTS_DIR, entry))
+      .filter(fullPath => {
+        try {
+          return statSync(fullPath).isDirectory();
+        } catch {
+          return false;
+        }
+      })
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function buildSystemPrompt(): string {
+  const projectDirs = getProjectDirectories();
+  const dirList = projectDirs.length > 0
+    ? projectDirs.map(dir => `- ${dir}`).join('\n')
+    : '(No directories found)';
+
+  return `You are an overseer agent managing multiple Claude Code terminal sessions in a GUI application.
 
 IMPORTANT VISIBILITY NOTE: You can only see and control terminals that were opened through this GUI.
 Claude Code sessions running in VS Code, Cursor, or other terminals are not visible to you.
@@ -24,6 +48,9 @@ Use the spawn_terminal tool to create terminals you can manage.
 
 IMPORTANT: The user's projects are located in: ${PROJECTS_DIR}
 When spawning terminals, always use FULL ABSOLUTE PATHS. If the user says "SKMD directory", use "${PROJECTS_DIR}/SKMD".
+
+AVAILABLE PROJECT DIRECTORIES:
+${dirList}
 
 You have access to these tools to monitor and control the terminals:
 
@@ -47,6 +74,7 @@ When you need to wait for a terminal to complete a task, use the sleep tool with
 You can wake on: timeout, terminal completing, terminal error, or terminal needing input.
 
 Be concise in your responses. Focus on status updates and actions.`;
+}
 
 interface Tool {
   name: string;
@@ -250,7 +278,7 @@ export class OverseerAgent extends EventEmitter {
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: 4096,
-        system: SYSTEM_PROMPT,
+        system: buildSystemPrompt(),
         tools: TOOLS as Anthropic.Tool[],
         messages: this.conversationHistory,
       });
