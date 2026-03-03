@@ -3,7 +3,8 @@
 
 import { EventEmitter } from 'events';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, isAbsolute } from 'path';
+import { existsSync, statSync } from 'fs';
 import type { Subprocess } from 'bun';
 import type {
   TerminalInfo,
@@ -41,6 +42,33 @@ export class TerminalManager extends EventEmitter {
   spawn(options: SpawnOptions): TerminalInfo {
     if (this.terminals.size >= MAX_TERMINALS) {
       throw new Error(`Maximum of ${MAX_TERMINALS} terminals allowed`);
+    }
+
+    // Validate the working directory
+    const cwd = options.cwd;
+
+    if (!cwd || cwd.trim() === '') {
+      throw new Error('Working directory cannot be empty');
+    }
+
+    if (!isAbsolute(cwd)) {
+      throw new Error(`Path must be absolute: ${cwd}`);
+    }
+
+    if (!existsSync(cwd)) {
+      throw new Error(`Directory does not exist: ${cwd}`);
+    }
+
+    try {
+      const stats = statSync(cwd);
+      if (!stats.isDirectory()) {
+        throw new Error(`Path is not a directory: ${cwd}`);
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EACCES') {
+        throw new Error(`Permission denied: ${cwd}`);
+      }
+      throw err;
     }
 
     const id = `terminal-${++this.idCounter}`;

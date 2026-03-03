@@ -10,12 +10,19 @@ import type {
 } from '../../shared/types';
 import type { ClientMessage, ServerMessage, SpecialKey } from '../../shared/protocol';
 
+interface SpawnError {
+  error: string;
+  cwd: string;
+  timestamp: number;
+}
+
 interface TerminalState {
   terminals: Map<string, TerminalInfo>;
   messages: Map<string, ClaudeMessage[]>;
   activeTerminalId: string | null;
   ws: WebSocket | null;
   connected: boolean;
+  spawnError: SpawnError | null;
 
   // Actions
   connect: () => void;
@@ -26,6 +33,7 @@ interface TerminalState {
   kill: (id: string) => void;
   setMode: (id: string, mode: PermissionMode) => void;
   setActive: (id: string | null) => void;
+  clearSpawnError: () => void;
 
   // Internal
   handleMessage: (message: ServerMessage) => void;
@@ -37,6 +45,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   activeTerminalId: null,
   ws: null,
   connected: false,
+  spawnError: null,
 
   connect: () => {
     // Close any existing connection first to prevent duplicates
@@ -133,6 +142,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set({ activeTerminalId: id });
   },
 
+  clearSpawnError: () => {
+    set({ spawnError: null });
+  },
+
   handleMessage: (message) => {
     switch (message.type) {
       case 'terminal:spawned': {
@@ -142,7 +155,19 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
           return {
             terminals,
             activeTerminalId: state.activeTerminalId || message.terminal.id,
+            spawnError: null, // Clear any previous error on successful spawn
           };
+        });
+        break;
+      }
+
+      case 'terminal:spawnError': {
+        set({
+          spawnError: {
+            error: message.error,
+            cwd: message.cwd,
+            timestamp: Date.now(),
+          },
         });
         break;
       }

@@ -51,6 +51,7 @@ export type SpecialKey =
 // Server -> Client messages
 export type ServerMessage =
   | { type: 'terminal:spawned'; terminal: TerminalInfo }
+  | { type: 'terminal:spawnError'; error: string; cwd: string }
   | { type: 'terminal:output'; id: string; data: string }
   | { type: 'terminal:message'; id: string; message: ClaudeMessage }
   | { type: 'terminal:status'; id: string; status: TerminalStatus }

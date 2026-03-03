@@ -11,6 +11,7 @@ import { HistorySidebar } from './components/HistorySidebar';
 import { OverseerPanel } from './components/OverseerPanel';
 import { Header } from './components/Header';
 import { SessionBrowser } from './components/SessionBrowser';
+import { SpawnErrorToast } from './components/SpawnErrorToast';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { ServerMessage } from '../shared/protocol';
 
@@ -96,6 +97,9 @@ export function App() {
       {sessionBrowserOpen && (
         <SessionBrowser onClose={() => setSessionBrowserOpen(false)} />
       )}
+
+      {/* Spawn error toast */}
+      <SpawnErrorToast />
     </div>
   );
 }

@@ -158,9 +158,15 @@ async function handleMessage(ws: WS, message: ClientMessage): Promise<void> {
     switch (message.type) {
       case 'terminal:spawn': {
         console.log('Spawning terminal with options:', message.options);
-        const terminal = terminalManager.spawn(message.options);
-        console.log('Terminal spawned:', terminal);
-        send(ws, { type: 'terminal:spawned', terminal });
+        try {
+          const terminal = terminalManager.spawn(message.options);
+          console.log('Terminal spawned:', terminal);
+          send(ws, { type: 'terminal:spawned', terminal });
+        } catch (spawnError) {
+          const errorMessage = spawnError instanceof Error ? spawnError.message : String(spawnError);
+          console.error('Failed to spawn terminal:', errorMessage);
+          send(ws, { type: 'terminal:spawnError', error: errorMessage, cwd: message.options.cwd });
+        }
         break;
       }
 
