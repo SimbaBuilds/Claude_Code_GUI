@@ -14,6 +14,7 @@ import type {
   ClaudeMessage,
 } from '../shared/types';
 import { MAX_TERMINALS } from '../shared/constants';
+import { terminalLogger as log } from './logger';
 
 interface Terminal {
   id: string;
@@ -86,7 +87,7 @@ export class TerminalManager extends EventEmitter {
     };
 
     this.terminals.set(id, terminal);
-    console.log(`Created terminal ${id} for cwd: ${options.cwd}`);
+    log.info('Terminal created', { id, cwd: options.cwd, model: terminal.model, permissionMode: terminal.permissionMode });
 
     const info = this.getInfo(id)!;
     this.emit('spawned', info);
@@ -95,11 +96,15 @@ export class TerminalManager extends EventEmitter {
 
   async send(id: string, input: string): Promise<void> {
     const terminal = this.terminals.get(id);
-    if (!terminal) throw new Error(`Terminal ${id} not found`);
+    if (!terminal) {
+      log.error('Terminal not found for send', { id });
+      throw new Error(`Terminal ${id} not found`);
+    }
 
     // Build command arguments
     const args = this.buildClaudeArgs(terminal, input);
 
+    log.info('Sending to terminal', { id, inputPreview: input.slice(0, 100), argsCount: args.length });
 
     // Update status to thinking
     this.updateStatus(id, 'thinking');
@@ -118,6 +123,7 @@ export class TerminalManager extends EventEmitter {
     });
 
     terminal.currentProc = proc;
+    log.debug('Claude process spawned', { id, pid: proc.pid });
 
     // Read stdout
     this.readStream(id, proc.stdout, 'stdout');
@@ -127,7 +133,7 @@ export class TerminalManager extends EventEmitter {
 
     // Handle process exit
     proc.exited.then((exitCode) => {
-      console.log(`Claude process for terminal ${id} exited with code ${exitCode}`);
+      log.info('Claude process exited', { id, exitCode });
       terminal.currentProc = undefined;
       this.updateStatus(id, 'idle');
     });
@@ -183,7 +189,7 @@ export class TerminalManager extends EventEmitter {
         this.handleOutput(id, text, streamType);
       }
     } catch (error) {
-      console.error(`Error reading ${streamType} for terminal ${id}:`, error);
+      log.error('Error reading stream', { id, streamType, error: String(error) });
     }
   }
 
@@ -206,7 +212,7 @@ export class TerminalManager extends EventEmitter {
       this.parseMessages(id);
     } else {
       // Stderr - might contain errors
-      console.log(`Terminal ${id} stderr:`, data);
+      log.warn('Terminal stderr', { id, data: data.slice(0, 500) });
     }
   }
 
@@ -327,18 +333,22 @@ export class TerminalManager extends EventEmitter {
 
   sendKey(id: string, key: string): void {
     // Not supported in --print mode
-    console.warn(`sendKey not supported in --print mode: ${key}`);
+    log.warn('sendKey not supported in --print mode', { id, key });
   }
 
   sendRaw(id: string, data: string): void {
     // Not supported in --print mode
-    console.warn(`sendRaw not supported in --print mode`);
+    log.warn('sendRaw not supported in --print mode', { id });
   }
 
   kill(id: string): void {
     const terminal = this.terminals.get(id);
-    if (!terminal) return;
+    if (!terminal) {
+      log.warn('Attempted to kill non-existent terminal', { id });
+      return;
+    }
 
+    log.info('Killing terminal', { id, hadProcess: !!terminal.currentProc });
     if (terminal.currentProc) {
       terminal.currentProc.kill();
     }
@@ -348,7 +358,7 @@ export class TerminalManager extends EventEmitter {
 
   resize(id: string, cols: number, rows: number): void {
     // Not supported in --print mode
-    console.warn(`resize not supported in --print mode: ${cols}x${rows}`);
+    log.warn('resize not supported in --print mode', { id, cols, rows });
   }
 
   setPermissionMode(id: string, mode: PermissionMode): void {
@@ -398,9 +408,10 @@ export class TerminalManager extends EventEmitter {
   }
 
   shutdown(): void {
-    console.log(`Shutting down ${this.terminals.size} terminals...`);
+    log.info('Shutting down terminal manager', { terminalCount: this.terminals.size });
     for (const [id] of this.terminals) {
       this.kill(id);
     }
+    log.info('Terminal manager shutdown complete');
   }
 }

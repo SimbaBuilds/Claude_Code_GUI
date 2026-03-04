@@ -13,6 +13,7 @@ import type {
   SpawnOptions,
   PermissionMode,
 } from '../shared/types';
+import { overseerLogger as log } from './logger';
 
 const PROJECTS_DIR = '/Users/cameronhightower/Software_Projects';
 
@@ -48,6 +49,7 @@ Use the spawn_terminal tool to create terminals you can manage.
 
 IMPORTANT: The user's projects are located in: ${PROJECTS_DIR}
 When spawning terminals, always use FULL ABSOLUTE PATHS. If the user says "SKMD directory", use "${PROJECTS_DIR}/SKMD".
+Docuspa_njs, skmd_wellness,njs, and skmd_fastapi are all in the SKMD directory.
 
 AVAILABLE PROJECT DIRECTORIES:
 ${dirList}
@@ -73,7 +75,10 @@ Your responsibilities:
 When you need to wait for a terminal to complete a task, use the sleep tool with appropriate wake conditions.
 You can wake on: timeout, terminal completing, terminal error, or terminal needing input.
 
-Be concise in your responses. Focus on status updates and actions.`;
+Be concise in your responses. Focus on status updates and actions.
+
+Important style note: match the style of the user's request.  Use direct imperatives in your instructions to the agent.  Instead of 'help me refactor the backend' say 'Please refactor the backend'.
+`;
 }
 
 interface Tool {
@@ -233,7 +238,10 @@ export class OverseerAgent extends EventEmitter {
   }
 
   async chat(userMessage: string): Promise<void> {
+    log.info('Chat received', { messageLength: userMessage.length, preview: userMessage.slice(0, 100) });
+
     if (this.sleeping) {
+      log.info('Waking from sleep due to new message');
       this.wake();
     }
 
@@ -258,9 +266,10 @@ export class OverseerAgent extends EventEmitter {
       await this.runAgentLoop();
     } catch (error) {
       if (this.isAborted) {
-        // Aborted - already handled
+        log.info('Chat aborted');
         return;
       }
+      log.error('Chat error', { error: String(error), stack: (error as Error).stack });
       throw error;
     }
   }
@@ -269,22 +278,44 @@ export class OverseerAgent extends EventEmitter {
     const MAX_ACTIONS = 30;
     let actionCount = 0;
 
+    log.debug('Starting agent loop', { maxActions: MAX_ACTIONS });
+
     while (actionCount < MAX_ACTIONS) {
       // Check for abort
       if (this.isAborted) {
+        log.info('Agent loop aborted');
         return;
       }
 
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 4096,
-        system: buildSystemPrompt(),
-        tools: TOOLS as Anthropic.Tool[],
-        messages: this.conversationHistory,
-      });
+      log.debug('Making API call', { model: this.model, historyLength: this.conversationHistory.length });
+      const startTime = Date.now();
+
+      let response: Anthropic.Message;
+      try {
+        response = await this.client.messages.create({
+          model: this.model,
+          max_tokens: 4096,
+          system: buildSystemPrompt(),
+          tools: TOOLS as Anthropic.Tool[],
+          messages: this.conversationHistory,
+        });
+        log.info('API call completed', {
+          duration: Date.now() - startTime,
+          stopReason: response.stop_reason,
+          usage: response.usage,
+        });
+      } catch (apiError) {
+        log.error('API call failed', {
+          duration: Date.now() - startTime,
+          error: String(apiError),
+          stack: (apiError as Error).stack,
+        });
+        throw apiError;
+      }
 
       // Check for abort after API call
       if (this.isAborted) {
+        log.info('Agent loop aborted after API call');
         return;
       }
 
@@ -335,11 +366,16 @@ export class OverseerAgent extends EventEmitter {
       this.updateStatus('acting');
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
+      log.info('Executing tools', { count: toolUses.length, tools: toolUses.map(t => t.name) });
+
       for (const toolUse of toolUses) {
         // Check for abort before each tool
         if (this.isAborted) {
+          log.info('Aborted before tool execution', { tool: toolUse.name });
           return;
         }
+
+        log.debug('Tool start', { tool: toolUse.name, input: toolUse.input });
 
         // Emit tool start message
         this.emitMessage({
@@ -353,16 +389,25 @@ export class OverseerAgent extends EventEmitter {
           },
         });
 
+        const toolStartTime = Date.now();
         const result = await this.executeTool(toolUse.name, toolUse.input as Record<string, unknown>);
 
         // Check for abort after tool execution
         if (this.isAborted) {
+          log.info('Aborted after tool execution', { tool: toolUse.name });
           return;
         }
 
         // Emit tool completion message
         const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
         const isError = typeof result === 'object' && result !== null && 'error' in result;
+
+        log.info('Tool completed', {
+          tool: toolUse.name,
+          duration: Date.now() - toolStartTime,
+          isError,
+          resultPreview: resultStr.slice(0, 200),
+        });
 
         this.emitMessage({
           role: 'tool',
@@ -464,6 +509,7 @@ export class OverseerAgent extends EventEmitter {
   }
 
   private startSleep(input: Record<string, unknown>): { status: string; conditions: WakeCondition[] } {
+    log.info('Starting sleep', input);
     this.sleeping = true;
     this.wakeConditions = [];
 
@@ -536,6 +582,7 @@ export class OverseerAgent extends EventEmitter {
   wake(): void {
     if (!this.sleeping) return;
 
+    log.info('Waking up');
     this.sleeping = false;
     this.wakeConditions = [];
     this.updateStatus('idle');
@@ -549,6 +596,7 @@ export class OverseerAgent extends EventEmitter {
 
   private updateStatus(status: OverseerStatus): void {
     if (this.status !== status) {
+      log.debug('Status change', { from: this.status, to: status });
       this.status = status;
       this.emit('status', status);
     }

@@ -11,6 +11,7 @@ import { OverseerAgent } from './overseer-agent';
 import { SessionDiscoveryService } from './session-discovery';
 import { TelegramBridge } from './telegram-bridge';
 import { SlackBridge } from './slack-bridge';
+import { serverLogger as log } from './logger';
 import type { ClientMessage, ServerMessage } from '../shared/protocol';
 import type { LayoutConfig } from '../shared/types';
 
@@ -51,7 +52,7 @@ if (TELEGRAM_BOT_TOKEN) {
   );
   await telegramBridge.start();
 } else {
-  console.log('Telegram: No bot token provided. Set TELEGRAM_BOT_TOKEN to enable.');
+  log.info('Telegram: No bot token provided. Set TELEGRAM_BOT_TOKEN to enable.');
 }
 
 // Initialize Slack bridge if tokens are provided
@@ -68,7 +69,7 @@ if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN && SLACK_SIGNING_SECRET) {
   );
   await slackBridge.start();
 } else {
-  console.log('Slack: Missing tokens. Set SLACK_BOT_TOKEN, SLACK_APP_TOKEN, and SLACK_SIGNING_SECRET to enable.');
+  log.info('Slack: Missing tokens. Set SLACK_BOT_TOKEN, SLACK_APP_TOKEN, and SLACK_SIGNING_SECRET to enable.');
 }
 
 // Track connected WebSocket clients
@@ -153,18 +154,18 @@ historyService.on('syncComplete', (sessionCount: number) => {
 
 // Handle WebSocket messages
 async function handleMessage(ws: WS, message: ClientMessage): Promise<void> {
-  console.log('Received message:', message.type);
+  log.debug('WebSocket message received', { type: message.type });
   try {
     switch (message.type) {
       case 'terminal:spawn': {
-        console.log('Spawning terminal with options:', message.options);
+        log.info('Spawning terminal', { options: message.options });
         try {
           const terminal = terminalManager.spawn(message.options);
-          console.log('Terminal spawned:', terminal);
+          log.info('Terminal spawned successfully', { id: terminal.id });
           send(ws, { type: 'terminal:spawned', terminal });
         } catch (spawnError) {
           const errorMessage = spawnError instanceof Error ? spawnError.message : String(spawnError);
-          console.error('Failed to spawn terminal:', errorMessage);
+          log.error('Failed to spawn terminal', { error: errorMessage, cwd: message.options.cwd });
           send(ws, { type: 'terminal:spawnError', error: errorMessage, cwd: message.options.cwd });
         }
         break;
@@ -228,7 +229,7 @@ async function handleMessage(ws: WS, message: ClientMessage): Promise<void> {
 
       case 'history:getSessions': {
         const sessions = historyService.getSessions(message.limit, message.offset);
-        console.log(`history:getSessions returning ${sessions.length} sessions`);
+        log.debug('Returning history sessions', { count: sessions.length });
         send(ws, { type: 'history:sessions', sessions });
         break;
       }
@@ -286,7 +287,7 @@ async function handleMessage(ws: WS, message: ClientMessage): Promise<void> {
         send(ws, { type: 'error', error: `Unknown message type: ${(message as { type: string }).type}` });
     }
   } catch (error) {
-    console.error('Error handling message:', error);
+    log.error('Error handling WebSocket message', { error: String(error), stack: (error as Error).stack });
     const errorMessage = error instanceof Error ? error.message : String(error);
     send(ws, { type: 'error', error: errorMessage });
   }
@@ -368,7 +369,7 @@ const server = Bun.serve({
 
       // Send history sessions automatically on connect
       const sessions = historyService.getSessions(50, 0);
-      console.log(`WebSocket open: sending ${sessions.length} sessions`);
+      log.debug('WebSocket client connected', { sessionCount: sessions.length });
       send(ws, { type: 'history:sessions', sessions });
     },
 
@@ -390,24 +391,26 @@ const server = Bun.serve({
   },
 });
 
-console.log(`Claude Code GUI server running on http://localhost:${server.port}`);
+log.info(`Server started on http://localhost:${server.port}`);
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-  console.log('\nShutting down...');
+  log.info('Received SIGINT, shutting down...');
   terminalManager.shutdown();
   telegramBridge?.stop();
   await slackBridge?.stop();
   historyService.close();
+  log.info('Shutdown complete');
   process.exit(0);
 });
 
 // Also handle SIGTERM for containerized deployments
 process.on('SIGTERM', async () => {
-  console.log('\nReceived SIGTERM, shutting down...');
+  log.info('Received SIGTERM, shutting down...');
   terminalManager.shutdown();
   telegramBridge?.stop();
   await slackBridge?.stop();
   historyService.close();
+  log.info('Shutdown complete');
   process.exit(0);
 });

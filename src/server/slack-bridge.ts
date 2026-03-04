@@ -4,6 +4,7 @@ import { App } from '@slack/bolt';
 import { EventEmitter } from 'events';
 import type { TerminalManager } from './terminal-manager';
 import type { OverseerAgent } from './overseer-agent';
+import { slackLogger as log } from './logger';
 
 interface SlackConfig {
   botToken: string;      // xoxb-...
@@ -48,9 +49,9 @@ export class SlackBridge extends EventEmitter {
   private setupHandlers(): void {
     // Log all events for debugging
     this.app.use(async (args) => {
-      console.log('Slack middleware:', Object.keys(args));
+      log.debug('Middleware event', { keys: Object.keys(args) });
       if (args.body) {
-        console.log('Slack body:', JSON.stringify(args.body).slice(0, 300));
+        log.debug('Event body', { body: JSON.stringify(args.body).slice(0, 300) });
       }
       await args.next();
     });
@@ -61,7 +62,7 @@ export class SlackBridge extends EventEmitter {
     // Handle direct messages and mentions
     this.app.event('app_mention', async ({ event, say }) => {
       const text = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();
-      console.log(`Slack: Mentioned with "${text}"`);
+      log.info('App mention received', { text: text.slice(0, 100), channel: event.channel });
 
       // Use existing thread_ts or the message ts as thread parent
       const threadTs = (event as any).thread_ts || event.ts;
@@ -71,7 +72,7 @@ export class SlackBridge extends EventEmitter {
 
       const threadKey = `${event.channel}:${threadTs}`;
       activeThreads.add(threadKey);
-      console.log(`Slack: Tracking thread ${threadKey} (total: ${activeThreads.size})`);
+      log.debug('Tracking thread', { threadKey, totalThreads: activeThreads.size });
 
       if (text) {
         await this.overseerAgent.chat(text);
@@ -84,7 +85,11 @@ export class SlackBridge extends EventEmitter {
     this.app.event('message', async ({ event, say }) => {
       const evt = event as any;
 
-      console.log(`Slack message event: channel_type=${evt.channel_type}, thread_ts=${evt.thread_ts}, bot_id=${evt.bot_id}`);
+      log.debug('Message event', {
+        channelType: evt.channel_type,
+        threadTs: evt.thread_ts,
+        hasBotId: !!evt.bot_id,
+      });
 
       // Ignore bot messages
       if (evt.bot_id) return;
@@ -94,21 +99,30 @@ export class SlackBridge extends EventEmitter {
 
       // Handle DMs
       if (evt.channel_type === 'im') {
-        console.log(`Slack: DM received "${evt.text}"`);
+        log.info('DM received', { text: evt.text?.slice(0, 100), channel: event.channel });
         this.activeChannel = event.channel;
-        await this.overseerAgent.chat(evt.text);
+        try {
+          await this.overseerAgent.chat(evt.text);
+        } catch (error) {
+          log.error('Failed to process DM', { error: String(error), stack: (error as Error).stack });
+        }
         return;
       }
 
       // Handle thread replies in active threads (where bot was mentioned)
       if (evt.thread_ts) {
         const threadKey = `${event.channel}:${evt.thread_ts}`;
-        console.log(`Slack: Checking thread ${threadKey}, tracked=${activeThreads.has(threadKey)}`);
-        if (activeThreads.has(threadKey)) {
-          console.log(`Slack: Thread reply "${evt.text}"`);
+        const isTracked = activeThreads.has(threadKey);
+        log.debug('Thread check', { threadKey, isTracked });
+        if (isTracked) {
+          log.info('Thread reply received', { text: evt.text?.slice(0, 100), threadKey });
           this.activeChannel = event.channel;
           this.activeThreadTs = evt.thread_ts;
-          await this.overseerAgent.chat(evt.text);
+          try {
+            await this.overseerAgent.chat(evt.text);
+          } catch (error) {
+            log.error('Failed to process thread reply', { error: String(error), stack: (error as Error).stack });
+          }
         }
       }
     });
@@ -287,15 +301,24 @@ export class SlackBridge extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    await this.app.start();
-    console.log('Slack: Connected via Socket Mode');
+    log.info('Starting Slack Socket Mode connection...');
+    try {
+      await this.app.start();
+      log.info('Slack connected successfully via Socket Mode');
+    } catch (error) {
+      log.error('Failed to start Slack connection', { error: String(error), stack: (error as Error).stack });
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
+    log.info('Stopping Slack connection...');
     await this.app.stop();
+    log.info('Slack connection stopped');
   }
 
   async sendMessage(channel: string, text: string): Promise<void> {
+    log.debug('Sending message', { channel, threadTs: this.activeThreadTs, textLength: text.length });
     try {
       await this.app.client.chat.postMessage({
         channel,
@@ -303,8 +326,9 @@ export class SlackBridge extends EventEmitter {
         mrkdwn: true,
         thread_ts: this.activeThreadTs || undefined,
       });
+      log.debug('Message sent successfully');
     } catch (error) {
-      console.error('Slack: Failed to send message:', error);
+      log.error('Failed to send message', { channel, error: String(error), stack: (error as Error).stack });
     }
   }
 

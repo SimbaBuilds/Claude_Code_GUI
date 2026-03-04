@@ -1,4 +1,4 @@
-.PHONY: run-gui gui build build-css install dev
+.PHONY: run-gui gui build build-css install dev run-awake
 
 BUN := ~/.bun/bin/bun
 
@@ -6,6 +6,9 @@ run-gui:
 	$(BUN) run src/server/index.ts
 
 gui: run-gui
+
+run-awake:
+	caffeinate -i $(BUN) run src/server/index.ts
 
 dev:
 	$(BUN) run --watch src/server/index.ts
