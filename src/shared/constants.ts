@@ -62,7 +62,7 @@ export const MODELS = [
   { id: 'haiku', name: 'Claude Haiku 4.5', description: 'Fastest' },
 ];
 
-export const DEFAULT_MODEL = 'sonnet';
+export const DEFAULT_MODEL = 'opus';
 
 // Models for Overseer agent (uses full API model IDs)
 export const OVERSEER_MODELS = [
