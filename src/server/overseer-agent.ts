@@ -9,6 +9,8 @@ import type { HistoryService } from './history-service';
 import type {
   OverseerMessage,
   OverseerStatus,
+  OverseerThread,
+  OverseerThreadSource,
   WakeCondition,
   SpawnOptions,
   PermissionMode,
@@ -41,13 +43,15 @@ function buildSystemPrompt(): string {
     ? projectDirs.map(dir => `- ${dir}`).join('\n')
     : '(No directories found)';
 
-  return `You are an overseer agent managing multiple Claude Code terminal sessions in a GUI application.
+  return `You are an overseer agent managing multiple Claude Code terminal sessions in a GUI application.  
 
-IMPORTANT VISIBILITY NOTE: You can only see and control terminals that were opened through this GUI.
-Claude Code sessions running in VS Code, Cursor, or other terminals are not visible to you.
-Use the spawn_terminal tool to create terminals you can manage.
+Notes::
+- You will eventually act as Cameron Hightower's assistant though your actions are limited to managing CLuade Code terminals fro now. 
+- Your source code is in /Users/cameronhightower/Software_Projects/Claude_Code_GUI and you can spawn a Claude Code terminal in this path to make changes to yourself.
+- You can only see and control terminals that were opened through this GUI.
+- Claude Code sessions running in VS Code, Cursor, or other terminals are not visible to you.
 
-IMPORTANT: The user's projects are located in: ${PROJECTS_DIR}
+The user's projects are located in: ${PROJECTS_DIR}
 When spawning terminals, always use FULL ABSOLUTE PATHS. If the user says "SKMD directory", use "${PROJECTS_DIR}/SKMD".
 Docuspa_njs, skmd_wellness,njs, and skmd_fastapi are all in the SKMD directory.
 
@@ -67,17 +71,16 @@ You have access to these tools to monitor and control the terminals:
 
 Your responsibilities:
 1. Monitor ongoing work across all terminals
-2. Coordinate tasks when the user asks (e.g., "have terminal 1 build while terminal 2 runs tests")
+2. Coordinate tasks when the user asks
 3. Summarize progress across terminals
 4. Alert if something seems stuck or errored
-5. Execute multi-terminal workflows autonomously
 
 When you need to wait for a terminal to complete a task, use the sleep tool with appropriate wake conditions.
 You can wake on: timeout, terminal completing, terminal error, or terminal needing input.
 
 Be concise in your responses. Focus on status updates and actions.
 
-Important style note: match the style of the user's request.  Use direct imperatives in your instructions to the agent.  Instead of 'help me refactor the backend' say 'Please refactor the backend'.
+Important style note: match the style of the user's request.  Use direct imperatives in your instructions to the agent.  Instead of 'Help me refactor the backend' say 'Please refactor the backend'.
 `;
 }
 
@@ -210,6 +213,12 @@ const TOOLS: Tool[] = [
 
 const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
 
+interface OverseerThreadData {
+  metadata: OverseerThread;
+  conversationHistory: Anthropic.MessageParam[];
+  displayMessages: OverseerMessage[];
+}
+
 export class OverseerAgent extends EventEmitter {
   private client: Anthropic;
   private terminalManager: TerminalManager;
@@ -223,6 +232,10 @@ export class OverseerAgent extends EventEmitter {
   private isAborted = false;
   private model: string = DEFAULT_MODEL;
 
+  // Thread management
+  private threads: Map<string, OverseerThreadData> = new Map();
+  private activeThreadId: string | null = null;
+
   constructor(
     terminalManager: TerminalManager,
     historyService: HistoryService
@@ -235,10 +248,104 @@ export class OverseerAgent extends EventEmitter {
     // Listen for terminal events to check wake conditions
     this.terminalManager.on('status', this.checkWakeConditions.bind(this));
     this.terminalManager.on('exit', this.checkWakeConditions.bind(this));
+
+    // Create default GUI thread
+    const defaultThread = this.createThread('gui');
+    this.activeThreadId = defaultThread.id;
   }
 
-  async chat(userMessage: string): Promise<void> {
-    log.info('Chat received', { messageLength: userMessage.length, preview: userMessage.slice(0, 100) });
+  createThread(source: OverseerThreadSource, sourceId?: string): OverseerThread {
+    const thread: OverseerThread = {
+      id: crypto.randomUUID(),
+      source,
+      sourceId,
+      createdAt: Date.now(),
+      lastMessageAt: Date.now(),
+      preview: '',
+      messageCount: 0,
+    };
+
+    this.threads.set(thread.id, {
+      metadata: thread,
+      conversationHistory: [],
+      displayMessages: [],
+    });
+
+    log.info('Thread created', { threadId: thread.id, source, sourceId });
+    this.emit('threadCreated', thread);
+
+    return thread;
+  }
+
+  getThreads(limit = 10): OverseerThread[] {
+    const allThreads = Array.from(this.threads.values())
+      .map(t => t.metadata)
+      .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+
+    return allThreads.slice(0, limit);
+  }
+
+  switchThread(threadId: string): void {
+    const threadData = this.threads.get(threadId);
+    if (!threadData) {
+      throw new Error(`Thread ${threadId} not found`);
+    }
+
+    log.info('Switching thread', { from: this.activeThreadId, to: threadId });
+    this.activeThreadId = threadId;
+
+    // Update the current conversation history reference
+    this.conversationHistory = threadData.conversationHistory;
+
+    this.emit('threadSwitched', threadId, threadData.displayMessages);
+  }
+
+  getOrCreateThread(source: OverseerThreadSource, sourceId?: string): string {
+    // Try to find existing thread by sourceId
+    if (sourceId) {
+      for (const [id, data] of this.threads.entries()) {
+        if (data.metadata.source === source && data.metadata.sourceId === sourceId) {
+          log.debug('Found existing thread', { threadId: id, source, sourceId });
+          return id;
+        }
+      }
+    }
+
+    // Create new thread if not found
+    const thread = this.createThread(source, sourceId);
+    return thread.id;
+  }
+
+  async chat(
+    userMessage: string,
+    options?: { threadId?: string; source?: OverseerThreadSource; sourceId?: string }
+  ): Promise<void> {
+    log.info('Chat received', { messageLength: userMessage.length, preview: userMessage.slice(0, 100), options });
+
+    // Determine which thread to use
+    let threadId: string;
+    if (options?.threadId) {
+      threadId = options.threadId;
+    } else if (options?.source) {
+      threadId = this.getOrCreateThread(options.source, options.sourceId);
+    } else {
+      // Use active thread or create default GUI thread
+      threadId = this.activeThreadId || this.createThread('gui').id;
+    }
+
+    // Get thread data
+    const threadData = this.threads.get(threadId);
+    if (!threadData) {
+      throw new Error(`Thread ${threadId} not found`);
+    }
+
+    // Switch to this thread if not already active
+    if (this.activeThreadId !== threadId) {
+      this.switchThread(threadId);
+    }
+
+    // Always ensure conversationHistory reference is correct
+    this.conversationHistory = threadData.conversationHistory;
 
     if (this.sleeping) {
       log.info('Waking from sleep due to new message');
@@ -251,16 +358,29 @@ export class OverseerAgent extends EventEmitter {
 
     this.updateStatus('thinking');
 
-    this.conversationHistory.push({
+    // Add to thread's conversation history
+    threadData.conversationHistory.push({
       role: 'user',
       content: userMessage,
     });
 
-    this.emitMessage({
+    const userMsg: OverseerMessage = {
       role: 'user',
       content: userMessage,
       timestamp: Date.now(),
-    });
+    };
+
+    // Add to thread's display messages
+    threadData.displayMessages.push(userMsg);
+
+    // Update thread metadata
+    threadData.metadata.lastMessageAt = Date.now();
+    threadData.metadata.messageCount++;
+    if (!threadData.metadata.preview) {
+      threadData.metadata.preview = userMessage.slice(0, 50);
+    }
+
+    this.emitMessage(userMsg);
 
     try {
       await this.runAgentLoop();
@@ -603,6 +723,16 @@ export class OverseerAgent extends EventEmitter {
   }
 
   private emitMessage(message: OverseerMessage): void {
+    // Store message in active thread (except user messages which are already stored in chat())
+    if (this.activeThreadId && message.role !== 'user') {
+      const threadData = this.threads.get(this.activeThreadId);
+      if (threadData) {
+        threadData.displayMessages.push(message);
+        threadData.metadata.lastMessageAt = Date.now();
+        threadData.metadata.messageCount++;
+      }
+    }
+
     this.emit('message', message);
   }
 
@@ -619,6 +749,15 @@ export class OverseerAgent extends EventEmitter {
   }
 
   clearHistory(): void {
+    if (this.activeThreadId) {
+      const threadData = this.threads.get(this.activeThreadId);
+      if (threadData) {
+        threadData.conversationHistory = [];
+        threadData.displayMessages = [];
+        threadData.metadata.messageCount = 0;
+        log.info('Cleared active thread history', { threadId: this.activeThreadId });
+      }
+    }
     this.conversationHistory = [];
     this.emit('cleared');
   }

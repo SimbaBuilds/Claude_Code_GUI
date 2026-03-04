@@ -75,7 +75,7 @@ export class SlackBridge extends EventEmitter {
       log.debug('Tracking thread', { threadKey, totalThreads: activeThreads.size });
 
       if (text) {
-        await this.overseerAgent.chat(text);
+        await this.overseerAgent.chat(text, { source: 'slack', sourceId: `${event.channel}:${threadTs}` });
       } else {
         // Reply in thread
         await say({ text: 'Hi! I\'m the Claude Code Overseer. Ask me anything about your terminals, or use `/claude-status` to check system status.', thread_ts: threadTs });
@@ -102,7 +102,7 @@ export class SlackBridge extends EventEmitter {
         log.info('DM received', { text: evt.text?.slice(0, 100), channel: event.channel });
         this.activeChannel = event.channel;
         try {
-          await this.overseerAgent.chat(evt.text);
+          await this.overseerAgent.chat(evt.text, { source: 'slack', sourceId: `${event.channel}:dm` });
         } catch (error) {
           log.error('Failed to process DM', { error: String(error), stack: (error as Error).stack });
         }
@@ -119,7 +119,7 @@ export class SlackBridge extends EventEmitter {
           this.activeChannel = event.channel;
           this.activeThreadTs = evt.thread_ts;
           try {
-            await this.overseerAgent.chat(evt.text);
+            await this.overseerAgent.chat(evt.text, { source: 'slack', sourceId: threadKey });
           } catch (error) {
             log.error('Failed to process thread reply', { error: String(error), stack: (error as Error).stack });
           }
@@ -197,7 +197,7 @@ export class SlackBridge extends EventEmitter {
 
       this.activeChannel = command.channel_id;
       await respond({ response_type: 'ephemeral', text: ':speech_balloon: Thinking...' });
-      await this.overseerAgent.chat(message);
+      await this.overseerAgent.chat(message, { source: 'slack', sourceId: `${command.channel_id}:command` });
     });
   }
 

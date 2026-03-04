@@ -23,6 +23,7 @@ interface TerminalState {
   ws: WebSocket | null;
   connected: boolean;
   spawnError: SpawnError | null;
+  shouldReconnect: boolean;
 
   // Actions
   connect: () => void;
@@ -46,6 +47,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   ws: null,
   connected: false,
   spawnError: null,
+  shouldReconnect: true,
 
   connect: () => {
     // Close any existing connection first to prevent duplicates
@@ -53,6 +55,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     if (existingWs && existingWs.readyState !== WebSocket.CLOSED) {
       existingWs.close();
     }
+
+    set({ shouldReconnect: true });
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
@@ -68,8 +72,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     ws.onclose = () => {
       console.log('WebSocket disconnected');
       set({ ws: null, connected: false });
-      // Reconnect after delay
-      setTimeout(() => get().connect(), 2000);
+      // Only reconnect if we should (prevents reconnect on intentional disconnect)
+      if (get().shouldReconnect) {
+        setTimeout(() => get().connect(), 2000);
+      }
     };
 
     ws.onerror = (error) => {
@@ -81,6 +87,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
 
   disconnect: () => {
     const { ws } = get();
+    set({ shouldReconnect: false });
     if (ws) {
       ws.close();
       set({ ws: null });

@@ -1,7 +1,7 @@
 // Overseer agent state management
 
 import { create } from 'zustand';
-import type { OverseerMessage, OverseerStatus, WakeCondition } from '../../shared/types';
+import type { OverseerMessage, OverseerStatus, OverseerThread, WakeCondition } from '../../shared/types';
 import type { ClientMessage, ServerMessage } from '../../shared/protocol';
 import { DEFAULT_OVERSEER_MODEL } from '../../shared/constants';
 
@@ -11,6 +11,8 @@ interface OverseerState {
   wakeConditions: WakeCondition[];
   panelOpen: boolean;
   model: string;
+  threads: OverseerThread[];
+  activeThreadId: string | null;
 
   // Actions
   chat: (message: string, ws: WebSocket | null) => void;
@@ -20,6 +22,9 @@ interface OverseerState {
   togglePanel: () => void;
   setPanel: (open: boolean) => void;
   setModel: (model: string, ws: WebSocket | null) => void;
+  listThreads: (ws: WebSocket | null) => void;
+  switchThread: (threadId: string, ws: WebSocket | null) => void;
+  newThread: (ws: WebSocket | null) => void;
 
   // Internal
   handleMessage: (message: ServerMessage) => void;
@@ -31,6 +36,8 @@ export const useOverseerStore = create<OverseerState>((set, get) => ({
   wakeConditions: [],
   panelOpen: true,
   model: DEFAULT_OVERSEER_MODEL,
+  threads: [],
+  activeThreadId: null,
 
   chat: (message, ws) => {
     if (!ws) return;
@@ -77,6 +84,27 @@ export const useOverseerStore = create<OverseerState>((set, get) => ({
     set({ model });
   },
 
+  listThreads: (ws) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const clientMessage: ClientMessage = { type: 'overseer:listThreads' };
+    ws.send(JSON.stringify(clientMessage));
+  },
+
+  switchThread: (threadId, ws) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const clientMessage: ClientMessage = { type: 'overseer:switchThread', threadId };
+    ws.send(JSON.stringify(clientMessage));
+  },
+
+  newThread: (ws) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const clientMessage: ClientMessage = { type: 'overseer:newThread' };
+    ws.send(JSON.stringify(clientMessage));
+  },
+
   handleMessage: (message) => {
     switch (message.type) {
       case 'overseer:message': {
@@ -113,6 +141,28 @@ export const useOverseerStore = create<OverseerState>((set, get) => ({
 
       case 'overseer:model': {
         set({ model: message.model });
+        break;
+      }
+
+      case 'overseer:threads': {
+        set({ threads: message.threads });
+        break;
+      }
+
+      case 'overseer:threadSwitched': {
+        set({
+          activeThreadId: message.threadId,
+          messages: message.messages,
+        });
+        break;
+      }
+
+      case 'overseer:threadCreated': {
+        set((state) => ({
+          threads: [message.thread, ...state.threads],
+          activeThreadId: message.thread.id,
+          messages: [],
+        }));
         break;
       }
     }

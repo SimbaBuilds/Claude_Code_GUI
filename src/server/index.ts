@@ -125,6 +125,10 @@ overseerAgent.on('message', (message) => {
 
 overseerAgent.on('status', (status) => {
   broadcast({ type: 'overseer:status', status });
+  // When status returns to idle, broadcast updated thread list with new metadata
+  if (status === 'idle') {
+    broadcast({ type: 'overseer:threads', threads: overseerAgent.getThreads(10) });
+  }
 });
 
 overseerAgent.on('sleeping', (conditions) => {
@@ -145,6 +149,14 @@ overseerAgent.on('aborted', () => {
 
 overseerAgent.on('model', (model: string) => {
   broadcast({ type: 'overseer:model', model });
+});
+
+overseerAgent.on('threadCreated', (thread) => {
+  broadcast({ type: 'overseer:threadCreated', thread });
+});
+
+overseerAgent.on('threadSwitched', (threadId: string, messages) => {
+  broadcast({ type: 'overseer:threadSwitched', threadId, messages });
 });
 
 // Wire up history events
@@ -218,6 +230,28 @@ async function handleMessage(ws: WS, message: ClientMessage): Promise<void> {
 
       case 'overseer:setModel': {
         overseerAgent.setModel(message.model);
+        break;
+      }
+
+      case 'overseer:listThreads': {
+        const threads = overseerAgent.getThreads(10);
+        send(ws, { type: 'overseer:threads', threads });
+        break;
+      }
+
+      case 'overseer:switchThread': {
+        try {
+          overseerAgent.switchThread(message.threadId);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          send(ws, { type: 'error', error: errorMessage });
+        }
+        break;
+      }
+
+      case 'overseer:newThread': {
+        const thread = overseerAgent.createThread('gui');
+        overseerAgent.switchThread(thread.id);
         break;
       }
 
@@ -366,6 +400,10 @@ const server = Bun.serve({
           conditions: overseerAgent.getWakeConditions(),
         });
       }
+
+      // Send overseer threads
+      const threads = overseerAgent.getThreads(10);
+      send(ws, { type: 'overseer:threads', threads });
 
       // Send history sessions automatically on connect
       const sessions = historyService.getSessions(50, 0);

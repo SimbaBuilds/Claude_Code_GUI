@@ -16,7 +16,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import type { ServerMessage } from '../shared/protocol';
 
 export function App() {
-  const { connect, ws, connected, handleMessage: handleTerminalMessage } = useTerminalStore();
+  const { connect, disconnect, ws, connected, handleMessage: handleTerminalMessage } = useTerminalStore();
 
   // Set up keyboard shortcuts
   useKeyboardShortcuts();
@@ -25,10 +25,13 @@ export function App() {
   const { handleMessage: handleLayoutMessage, load: loadLayout, historySidebarOpen, overseerPanelOpen, overseerPanelHeight } = useLayoutStore();
   const { handleMessage: handleSessionsMessage, isOpen: sessionBrowserOpen, setOpen: setSessionBrowserOpen } = useSessionsStore();
 
-  // Connect WebSocket on mount
+  // Connect WebSocket on mount, disconnect on unmount
   useEffect(() => {
     connect();
-  }, [connect]);
+    return () => {
+      disconnect();
+    };
+  }, [connect, disconnect]);
 
   // Set up message handlers
   useEffect(() => {

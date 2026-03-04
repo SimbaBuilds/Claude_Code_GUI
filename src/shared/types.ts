@@ -119,3 +119,16 @@ export interface DiscoveredSession {
   messageCount: number;
   preview?: string; // First user message
 }
+
+// Overseer thread types
+export type OverseerThreadSource = 'gui' | 'slack' | 'telegram';
+
+export interface OverseerThread {
+  id: string;
+  source: OverseerThreadSource;
+  sourceId?: string;
+  createdAt: number;
+  lastMessageAt: number;
+  preview: string;  // first ~50 chars of first user message
+  messageCount: number;
+}

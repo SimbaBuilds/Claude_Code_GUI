@@ -9,6 +9,7 @@ import type {
   HistoryMessage,
   OverseerMessage,
   OverseerStatus,
+  OverseerThread,
   WakeCondition,
   PermissionMode,
   LayoutConfig,
@@ -28,6 +29,9 @@ export type ClientMessage =
   | { type: 'overseer:abort' }
   | { type: 'overseer:clear' }
   | { type: 'overseer:setModel'; model: string }
+  | { type: 'overseer:listThreads' }
+  | { type: 'overseer:switchThread'; threadId: string }
+  | { type: 'overseer:newThread' }
   | { type: 'history:search'; query: string }
   | { type: 'history:getSessions'; limit?: number; offset?: number }
   | { type: 'history:getMessages'; sessionId: string }
@@ -66,6 +70,9 @@ export type ServerMessage =
   | { type: 'overseer:aborted' }
   | { type: 'overseer:cleared' }
   | { type: 'overseer:model'; model: string }
+  | { type: 'overseer:threads'; threads: OverseerThread[] }
+  | { type: 'overseer:threadSwitched'; threadId: string; messages: OverseerMessage[] }
+  | { type: 'overseer:threadCreated'; thread: OverseerThread }
   | { type: 'history:sessions'; sessions: Session[] }
   | { type: 'history:messages'; sessionId: string; messages: HistoryMessage[] }
   | { type: 'history:searchResults'; results: SearchResult[] }

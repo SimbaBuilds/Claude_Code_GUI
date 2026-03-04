@@ -28,13 +28,15 @@ function formatTimeout(ms: number): string {
 }
 
 export function OverseerPanel({ onHeightChange }: OverseerPanelProps) {
-  const { status, messages, wakeConditions, chat, wake, abort, clearChat } = useOverseerStore();
-  const { ws } = useTerminalStore();
+  const { status, messages, wakeConditions, threads, activeThreadId, chat, wake, abort, clearChat, listThreads, switchThread, newThread } = useOverseerStore();
+  const { ws, connected } = useTerminalStore();
   const { overseerPanelHeight, setOverseerPanel, save } = useLayoutStore();
   const [input, setInput] = useState('');
   const [isResizing, setIsResizing] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
 
@@ -44,6 +46,29 @@ export function OverseerPanel({ onHeightChange }: OverseerPanelProps) {
       contentRef.current.scrollTop = contentRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Load threads when connected
+  useEffect(() => {
+    if (ws && connected) {
+      listThreads(ws);
+    }
+  }, [ws, connected, listThreads]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+
+    if (dropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [dropdownOpen]);
 
   // Handle resize drag
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -107,6 +132,30 @@ export function OverseerPanel({ onHeightChange }: OverseerPanelProps) {
     }
   };
 
+  const handleNewThread = () => {
+    newThread(ws);
+    setDropdownOpen(false);
+  };
+
+  const handleSwitchThread = (threadId: string) => {
+    switchThread(threadId, ws);
+    setDropdownOpen(false);
+  };
+
+  const formatRelativeTime = (timestamp: number): string => {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) return `${days}d ago`;
+    if (hours > 0) return `${hours}h ago`;
+    if (minutes > 0) return `${minutes}m ago`;
+    return 'just now';
+  };
+
   const statusLabels: Record<string, string> = {
     idle: 'Idle',
     thinking: 'Thinking...',
@@ -140,6 +189,157 @@ export function OverseerPanel({ onHeightChange }: OverseerPanelProps) {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Thread selector dropdown */}
+          <div ref={dropdownRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className="btn btn-secondary text-xs px-2 py-1 flex items-center gap-1"
+              title="Switch conversation thread"
+            >
+              <span>Threads</span>
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z" />
+              </svg>
+            </button>
+
+            {dropdownOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: '4px',
+                  minWidth: '280px',
+                  maxWidth: '400px',
+                  maxHeight: '400px',
+                  overflowY: 'auto',
+                  backgroundColor: 'var(--color-bg-secondary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: '6px',
+                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
+                  zIndex: 50,
+                }}
+              >
+                {/* New conversation button */}
+                <button
+                  onClick={handleNewThread}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    backgroundColor: 'var(--color-bg-tertiary)',
+                    color: 'var(--color-accent)',
+                    border: 'none',
+                    borderBottom: '1px solid var(--color-border)',
+                    cursor: 'pointer',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--color-bg-primary)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'var(--color-bg-tertiary)';
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M7.75 2a.75.75 0 01.75.75V7h4.25a.75.75 0 010 1.5H8.5v4.25a.75.75 0 01-1.5 0V8.5H2.75a.75.75 0 010-1.5H7V2.75A.75.75 0 017.75 2z" />
+                  </svg>
+                  New Conversation
+                </button>
+
+                {/* Thread list */}
+                <div style={{ padding: '4px' }}>
+                  {threads.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '16px',
+                        textAlign: 'center',
+                        color: 'var(--color-text-muted)',
+                        fontSize: '12px',
+                      }}
+                    >
+                      No threads yet
+                    </div>
+                  ) : (
+                    threads.map((thread) => (
+                      <button
+                        key={thread.id}
+                        onClick={() => handleSwitchThread(thread.id)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px',
+                          backgroundColor:
+                            thread.id === activeThreadId
+                              ? 'var(--color-bg-tertiary)'
+                              : 'transparent',
+                          color: 'var(--color-text-primary)',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          fontSize: '13px',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (thread.id !== activeThreadId) {
+                            e.currentTarget.style.backgroundColor = 'var(--color-bg-tertiary)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (thread.id !== activeThreadId) {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              padding: '2px 6px',
+                              borderRadius: '3px',
+                              backgroundColor:
+                                thread.source === 'gui'
+                                  ? 'var(--color-accent)'
+                                  : thread.source === 'slack'
+                                  ? 'var(--color-success)'
+                                  : 'var(--color-warning)',
+                              color: 'white',
+                              fontWeight: 500,
+                            }}
+                          >
+                            {thread.source.toUpperCase()}
+                          </span>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                            {formatRelativeTime(thread.lastMessageAt)}
+                          </span>
+                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                            {thread.messageCount} msgs
+                          </span>
+                        </div>
+                        <div
+                          style={{
+                            color: 'var(--color-text-secondary)',
+                            fontSize: '12px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {thread.preview || '(empty conversation)'}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Cancel button for thinking/acting states */}
           {(status === 'thinking' || status === 'acting') && (
             <button

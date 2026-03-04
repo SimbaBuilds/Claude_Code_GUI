@@ -126,7 +126,7 @@ export class TelegramBridge extends EventEmitter {
 
     // Forward to overseer
     this.activeChatId = chatId;
-    await this.overseerAgent.chat(text);
+    await this.overseerAgent.chat(text, { source: 'telegram', sourceId: `telegram:${chatId}` });
   }
 
   private async handleCommand(chatId: number, text: string): Promise<void> {
@@ -195,7 +195,7 @@ export class TelegramBridge extends EventEmitter {
           return;
         }
         this.activeChatId = chatId;
-        await this.overseerAgent.chat(message);
+        await this.overseerAgent.chat(message, { source: 'telegram', sourceId: `telegram:${chatId}` });
         break;
 
       case '/help':
