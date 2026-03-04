@@ -63,7 +63,7 @@ You have access to these tools to monitor and control the terminals:
 1. list_terminals - Get status of all active terminals (only shows GUI-managed terminals)
 2. get_terminal_buffer - Read recent output from a specific terminal
 3. send_to_terminal - Send a message or command to a terminal
-4. spawn_terminal - Create a new Claude Code terminal (MUST use absolute paths)
+4. spawn_terminal - Create a new Claude Code terminal (must use absolute paths)
 5. kill_terminal - Terminate a terminal
 6. set_permission_mode - Change a terminal's permission mode (default, acceptEdits, bypassPermissions, plan)
 7. search_history - Search past chat sessions
@@ -75,10 +75,15 @@ Your responsibilities:
 3. Summarize progress across terminals
 4. Alert if something seems stuck or errored
 
-When you need to wait for a terminal to complete a task, use the sleep tool with appropriate wake conditions.
-You can wake on: timeout, terminal completing, terminal error, or terminal needing input.
+Workflow for terminal tasks:
+After sending work to a terminal, always use the sleep tool to wait for results:
 
-Be concise in your responses. Focus on status updates and actions.
+1. Provide a brief status update (e.g., "Running tests in terminal-1, checking back in 30 seconds...")
+2. Call sleep with the best wait mechanism, defaulting to timeout_ms
+   - For multiple terminals: use timeout_ms only, then check all terminals after waking
+   - For single terminal: timeout_ms is usually sufficient, optionally add wake_on_terminal_complete
+3. After waking, call get_terminal_buffer or list_terminals to check results
+4. Report results to the user. If work is incomplete, sleep again and keep checking.
 
 Important style note: match the style of the user's request.  Use direct imperatives in your instructions to the agent.  Instead of 'Help me refactor the backend' say 'Please refactor the backend'.
 `;
@@ -189,22 +194,22 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'sleep',
-    description: 'Pause execution and wait for conditions. Use this when waiting for terminals to complete tasks.',
+    description: 'Pause execution and wait for terminal work to complete. Use timeout_ms as your primary wait mechanism - estimate how long the task will take and sleep for that duration. After waking, check terminal status. For multiple terminals, use timeout only (not individual wake conditions).',
     input_schema: {
       type: 'object',
       properties: {
-        timeout_ms: { type: 'number', description: 'Max time to sleep in milliseconds' },
+        timeout_ms: { type: 'number', description: 'Duration to sleep in milliseconds. Primary wait mechanism. Estimate: 5000ms for quick commands, 30000-60000ms for tests/builds, 120000ms for long operations.' },
         wake_on_terminal_complete: {
           type: 'string',
-          description: 'Terminal ID to wake when it completes',
+          description: 'Optional: Terminal ID to wake early when it completes (use with single terminal only)',
         },
         wake_on_terminal_error: {
           type: 'string',
-          description: 'Terminal ID to wake when it errors',
+          description: 'Optional: Terminal ID to wake early when it errors (use with single terminal only)',
         },
         wake_on_terminal_input: {
           type: 'string',
-          description: 'Terminal ID to wake when it needs input',
+          description: 'Optional: Terminal ID to wake early when it needs input (use with single terminal only)',
         },
       },
     },
@@ -231,6 +236,7 @@ export class OverseerAgent extends EventEmitter {
   private abortController: AbortController | null = null;
   private isAborted = false;
   private model: string = DEFAULT_MODEL;
+  private agentLoopPromise: Promise<void> | null = null;
 
   // Thread management
   private threads: Map<string, OverseerThreadData> = new Map();
@@ -350,6 +356,10 @@ export class OverseerAgent extends EventEmitter {
     if (this.sleeping) {
       log.info('Waking from sleep due to new message');
       this.wake();
+      // Wait for the sleeping agent loop to finish adding tool results
+      if (this.agentLoopPromise) {
+        await this.agentLoopPromise;
+      }
     }
 
     // Reset abort state for new chat
@@ -383,7 +393,9 @@ export class OverseerAgent extends EventEmitter {
     this.emitMessage(userMsg);
 
     try {
-      await this.runAgentLoop();
+      // Track the agent loop so we can wait for it to finish when waking from sleep
+      this.agentLoopPromise = this.runAgentLoop();
+      await this.agentLoopPromise;
     } catch (error) {
       if (this.isAborted) {
         log.info('Chat aborted');
@@ -391,6 +403,8 @@ export class OverseerAgent extends EventEmitter {
       }
       log.error('Chat error', { error: String(error), stack: (error as Error).stack });
       throw error;
+    } finally {
+      this.agentLoopPromise = null;
     }
   }
 

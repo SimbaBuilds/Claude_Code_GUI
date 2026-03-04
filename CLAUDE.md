@@ -2,27 +2,10 @@
 
 Browser-based GUI for Claude Code with multi-terminal support, overseer agent, and remote access via Slack/Telegram.
 
-## Quick Start
-
-```bash
-# Install dependencies
-bun install
-
-# Build frontend (JS)
-bun run build
-
-# Build CSS (after making style changes)
-npx @tailwindcss/cli -i src/client/styles/globals.css -o dist/client/styles/globals.css
-
-# Start server
-bun run start
-```
-
-Open http://localhost:3001
 
 ## Run with Slack Integration
 
-See Makefiel for more commands
+See Makefile for more commands
 
 ## Environment Variables
 
