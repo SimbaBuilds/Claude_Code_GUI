@@ -12,12 +12,17 @@ interface SlackConfig {
   signingSecret: string;
 }
 
+// Cooldown period for reconnection attempts (5 minutes)
+const RECONNECT_COOLDOWN_MS = 5 * 60 * 1000;
+
 export class SlackBridge extends EventEmitter {
   private app: App;
   private terminalManager: TerminalManager;
   private overseerAgent: OverseerAgent;
   private activeChannel: string | null = null;
   private activeThreadTs: string | null = null;
+  private botUserId: string | null = null;
+  private lastReconnectTime: number = 0;
 
   constructor(
     config: SlackConfig,
@@ -94,8 +99,47 @@ export class SlackBridge extends EventEmitter {
       // Ignore bot messages
       if (evt.bot_id) return;
 
-      // Ignore messages that contain @mentions (handled by app_mention)
-      if (evt.text && evt.text.includes('<@')) return;
+      // Check if message contains @mentions
+      if (evt.text && evt.text.includes('<@')) {
+        // Check if this message specifically mentions THIS bot
+        if (this.botUserId && evt.text.includes(`<@${this.botUserId}>`)) {
+          // This is a mention of our bot - handle as fallback since app_mention didn't fire
+          log.warn('app_mention event did not fire, handling bot mention via message event fallback', {
+            channel: event.channel,
+            text: evt.text?.slice(0, 100),
+          });
+
+          const text = evt.text.replace(/<@[A-Z0-9]+>/g, '').trim();
+          const threadTs = evt.thread_ts || evt.ts;
+
+          this.activeChannel = event.channel;
+          this.activeThreadTs = threadTs;
+
+          const threadKey = `${event.channel}:${threadTs}`;
+          activeThreads.add(threadKey);
+          log.debug('Tracking thread (fallback)', { threadKey, totalThreads: activeThreads.size });
+
+          if (text) {
+            try {
+              await this.overseerAgent.chat(text, { source: 'slack', sourceId: threadKey });
+            } catch (error) {
+              log.error('Failed to process fallback mention', { error: String(error), stack: (error as Error).stack });
+            }
+          } else {
+            await say({
+              text: 'Hi! I\'m the Claude Code Overseer. Ask me anything about your terminals, or use `/claude-status` to check system status.',
+              thread_ts: threadTs,
+            });
+          }
+
+          // Trigger background reconnect to fix the connection for future events
+          this.reconnect();
+          return;
+        }
+
+        // Message contains @mentions of other users/bots, ignore it
+        return;
+      }
 
       // Handle DMs
       if (evt.channel_type === 'im') {
@@ -305,10 +349,65 @@ export class SlackBridge extends EventEmitter {
     try {
       await this.app.start();
       log.info('Slack connected successfully via Socket Mode');
+
+      // Get bot user ID for fallback mention detection
+      try {
+        const authResult = await this.app.client.auth.test();
+        this.botUserId = authResult.user_id || null;
+        log.info('Bot user ID retrieved', { botUserId: this.botUserId });
+      } catch (authError) {
+        log.warn('Failed to get bot user ID, fallback mention handling will be disabled', {
+          error: String(authError),
+        });
+      }
     } catch (error) {
       log.error('Failed to start Slack connection', { error: String(error), stack: (error as Error).stack });
       throw error;
     }
+  }
+
+  private async reconnect(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastReconnect = now - this.lastReconnectTime;
+
+    // Check cooldown
+    if (timeSinceLastReconnect < RECONNECT_COOLDOWN_MS) {
+      const remainingCooldown = Math.ceil((RECONNECT_COOLDOWN_MS - timeSinceLastReconnect) / 1000);
+      log.debug('Reconnect skipped - cooldown active', {
+        remainingSeconds: remainingCooldown,
+      });
+      return;
+    }
+
+    this.lastReconnectTime = now;
+    log.info('Initiating background reconnect to fix Socket Mode connection...');
+
+    // Perform reconnect in background (don't await)
+    (async () => {
+      try {
+        log.info('Stopping Slack connection for reconnect...');
+        await this.app.stop();
+        log.info('Slack connection stopped, restarting...');
+        await this.app.start();
+        log.info('Slack reconnected successfully');
+
+        // Re-fetch bot user ID after reconnect
+        try {
+          const authResult = await this.app.client.auth.test();
+          this.botUserId = authResult.user_id || null;
+          log.info('Bot user ID refreshed after reconnect', { botUserId: this.botUserId });
+        } catch (authError) {
+          log.warn('Failed to refresh bot user ID after reconnect', {
+            error: String(authError),
+          });
+        }
+      } catch (error) {
+        log.error('Background reconnect failed', {
+          error: String(error),
+          stack: (error as Error).stack,
+        });
+      }
+    })();
   }
 
   async stop(): Promise<void> {

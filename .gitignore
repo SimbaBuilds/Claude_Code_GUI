@@ -51,3 +51,4 @@ bun.lock
 
 .creds.md
 creds.md
+docs/users_gmail/__pycache__/read_gmail.cpython-311.pyc

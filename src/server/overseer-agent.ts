@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { EventEmitter } from 'events';
 import { existsSync, readdirSync, statSync } from 'fs';
 import { resolve, isAbsolute, join } from 'path';
+import Imap from 'imap';
 import type { TerminalManager } from './terminal-manager';
 import type { HistoryService } from './history-service';
 import type {
@@ -18,6 +19,170 @@ import type {
 import { overseerLogger as log } from './logger';
 
 const PROJECTS_DIR = '/Users/cameronhightower/Software_Projects';
+
+// Gmail account configurations
+const GMAIL_ACCOUNTS = {
+  work: {
+    email: 'cameron.hightower@simbabuilds.com',
+    password: 'knfc cgob uxls apao',
+  },
+  personal: {
+    email: 'cmrn.hightower@gmail.com',
+    password: 'gmmx mipl qbtz swax',
+  },
+};
+
+interface EmailSummary {
+  from: string;
+  to: string;
+  subject: string;
+  date: string;
+  snippet: string;
+}
+
+async function readGmail(
+  account: 'work' | 'personal' = 'work',
+  folder: string = 'INBOX',
+  searchQuery?: string,
+  limit: number = 10,
+  daysBack: number = 7
+): Promise<EmailSummary[]> {
+  const config = GMAIL_ACCOUNTS[account];
+
+  return new Promise((resolve, reject) => {
+    const imap = new Imap({
+      user: config.email,
+      password: config.password,
+      host: 'imap.gmail.com',
+      port: 993,
+      tls: true,
+      tlsOptions: { rejectUnauthorized: false },
+    });
+
+    const emails: EmailSummary[] = [];
+
+    function openInbox(cb: (err: Error | null, box?: unknown) => void) {
+      imap.openBox(folder, true, cb);
+    }
+
+    imap.once('ready', () => {
+      openInbox((err) => {
+        if (err) {
+          imap.end();
+          reject(err);
+          return;
+        }
+
+        // Build search criteria
+        const searchCriteria: unknown[] = ['ALL'];
+
+        // Add date filter
+        const sinceDate = new Date();
+        sinceDate.setDate(sinceDate.getDate() - daysBack);
+        searchCriteria.push(['SINCE', sinceDate]);
+
+        // Add custom search query if provided
+        if (searchQuery) {
+          // Parse search query - simple implementation
+          // Support formats like: SUBJECT "text", FROM "email", UNSEEN, etc.
+          const queryUpper = searchQuery.toUpperCase();
+          if (queryUpper.includes('SUBJECT')) {
+            const match = searchQuery.match(/SUBJECT\s+"([^"]+)"/i);
+            if (match) searchCriteria.push(['HEADER', 'SUBJECT', match[1]]);
+          } else if (queryUpper.includes('FROM')) {
+            const match = searchQuery.match(/FROM\s+"([^"]+)"/i);
+            if (match) searchCriteria.push(['HEADER', 'FROM', match[1]]);
+          } else if (queryUpper.includes('UNSEEN')) {
+            searchCriteria.push('UNSEEN');
+          } else if (queryUpper.includes('TO')) {
+            const match = searchQuery.match(/TO\s+"([^"]+)"/i);
+            if (match) searchCriteria.push(['HEADER', 'TO', match[1]]);
+          }
+        }
+
+        imap.search(searchCriteria, (err, results) => {
+          if (err) {
+            imap.end();
+            reject(err);
+            return;
+          }
+
+          if (!results || results.length === 0) {
+            imap.end();
+            resolve([]);
+            return;
+          }
+
+          // Limit results
+          const limitedResults = results.slice(-limit);
+
+          const f = imap.fetch(limitedResults, {
+            bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)', 'TEXT'],
+            struct: true,
+          });
+
+          f.on('message', (msg) => {
+            let header = '';
+            let body = '';
+
+            msg.on('body', (stream, info) => {
+              let buffer = '';
+              stream.on('data', (chunk) => {
+                buffer += chunk.toString('utf8');
+              });
+              stream.once('end', () => {
+                if (info.which === 'TEXT') {
+                  body = buffer;
+                } else {
+                  header = buffer;
+                }
+              });
+            });
+
+            msg.once('end', () => {
+              // Parse header
+              const fromMatch = header.match(/From:\s*(.+)/i);
+              const toMatch = header.match(/To:\s*(.+)/i);
+              const subjectMatch = header.match(/Subject:\s*(.+)/i);
+              const dateMatch = header.match(/Date:\s*(.+)/i);
+
+              // Create snippet from body (first 200 chars, remove extra whitespace)
+              const cleanBody = body.replace(/\s+/g, ' ').trim();
+              const snippet = cleanBody.slice(0, 200) + (cleanBody.length > 200 ? '...' : '');
+
+              emails.push({
+                from: fromMatch && fromMatch[1] ? fromMatch[1].trim() : 'Unknown',
+                to: toMatch && toMatch[1] ? toMatch[1].trim() : 'Unknown',
+                subject: subjectMatch && subjectMatch[1] ? subjectMatch[1].trim() : '(No subject)',
+                date: dateMatch && dateMatch[1] ? dateMatch[1].trim() : 'Unknown',
+                snippet,
+              });
+            });
+          });
+
+          f.once('error', (err) => {
+            imap.end();
+            reject(err);
+          });
+
+          f.once('end', () => {
+            imap.end();
+          });
+        });
+      });
+    });
+
+    imap.once('error', (err) => {
+      reject(err);
+    });
+
+    imap.once('end', () => {
+      resolve(emails);
+    });
+
+    imap.connect();
+  });
+}
 
 function getProjectDirectories(): string[] {
   try {
@@ -68,6 +233,7 @@ You have access to these tools to monitor and control the terminals:
 6. set_permission_mode - Change a terminal's permission mode (default, acceptEdits, bypassPermissions, plan)
 7. search_history - Search past chat sessions
 8. sleep - Pause your execution and wait for conditions to be met
+9. read_gmail - Check Cameron's email via IMAP (work or personal account)
 
 Your responsibilities:
 1. Monitor ongoing work across all terminals
@@ -210,6 +376,36 @@ const TOOLS: Tool[] = [
         wake_on_terminal_input: {
           type: 'string',
           description: 'Optional: Terminal ID to wake early when it needs input (use with single terminal only)',
+        },
+      },
+    },
+  },
+  {
+    name: 'read_gmail',
+    description: 'Check Cameron\'s email using IMAP. Returns email summaries with sender, recipient, subject, date, and snippet.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        account: {
+          type: 'string',
+          enum: ['work', 'personal'],
+          description: 'Which email account to check (default: work)',
+        },
+        folder: {
+          type: 'string',
+          description: 'IMAP folder to search (default: INBOX)',
+        },
+        search_query: {
+          type: 'string',
+          description: 'IMAP search query. Examples: SUBJECT "meeting", FROM "boss@example.com", UNSEEN, TO "someone@example.com"',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of emails to return (default: 10)',
+        },
+        days_back: {
+          type: 'number',
+          description: 'Only fetch emails from the last N days (default: 7)',
         },
       },
     },
@@ -636,6 +832,27 @@ export class OverseerAgent extends EventEmitter {
 
       case 'sleep':
         return this.startSleep(input);
+
+      case 'read_gmail':
+        try {
+          const emails = await readGmail(
+            (input.account as 'work' | 'personal') || 'work',
+            (input.folder as string) || 'INBOX',
+            input.search_query as string | undefined,
+            (input.limit as number) || 10,
+            (input.days_back as number) || 7
+          );
+          return {
+            success: true,
+            count: emails.length,
+            emails,
+          };
+        } catch (error) {
+          log.error('Gmail read error', { error: String(error) });
+          return {
+            error: `Failed to read Gmail: ${error instanceof Error ? error.message : String(error)}`,
+          };
+        }
 
       default:
         return { error: `Unknown tool: ${name}` };
