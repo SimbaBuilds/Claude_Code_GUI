@@ -518,6 +518,82 @@ export class OverseerAgent extends EventEmitter {
     return thread.id;
   }
 
+  /**
+   * Repairs conversation history by ensuring every tool_use has a corresponding tool_result.
+   * Scans the entire history and inserts missing tool_results where needed.
+   * This can happen when the agent loop is interrupted during tool execution.
+   */
+  private repairConversationHistory(history: Anthropic.MessageParam[]): void {
+    if (history.length === 0) return;
+
+    // We need to rebuild the history array to insert missing tool_results
+    const repairedHistory: Anthropic.MessageParam[] = [];
+    let repairCount = 0;
+
+    for (let i = 0; i < history.length; i++) {
+      const message = history[i];
+      if (!message) continue;
+
+      repairedHistory.push(message);
+
+      // Check if this is an assistant message with tool_use blocks
+      if (message.role !== 'assistant') continue;
+
+      const content = message.content;
+      if (!Array.isArray(content)) continue;
+
+      const toolUses = content.filter(
+        (block): block is Anthropic.ToolUseBlock =>
+          typeof block === 'object' && block !== null && block.type === 'tool_use'
+      );
+
+      if (toolUses.length === 0) continue;
+
+      // Get the tool_use IDs we need results for
+      const toolUseIds = new Set(toolUses.map(t => t.id));
+
+      // Check if the next message has the required tool_results
+      const nextMessage = history[i + 1];
+      if (nextMessage && nextMessage.role === 'user' && Array.isArray(nextMessage.content)) {
+        // Check which tool_results are present
+        for (const block of nextMessage.content) {
+          if (typeof block === 'object' && block !== null && 'type' in block && block.type === 'tool_result' && 'tool_use_id' in block) {
+            toolUseIds.delete(block.tool_use_id as string);
+          }
+        }
+      }
+
+      // If any tool_use IDs are still missing results, add them
+      if (toolUseIds.size > 0) {
+        const missingToolUses = toolUses.filter(t => toolUseIds.has(t.id));
+        log.warn('Repairing conversation history - adding missing tool_results', {
+          position: i,
+          missingCount: missingToolUses.length,
+          toolNames: missingToolUses.map(t => t.name),
+        });
+
+        const toolResults: Anthropic.ToolResultBlockParam[] = missingToolUses.map(toolUse => ({
+          type: 'tool_result' as const,
+          tool_use_id: toolUse.id,
+          content: '(Operation interrupted)',
+        }));
+
+        repairedHistory.push({
+          role: 'user',
+          content: toolResults,
+        });
+        repairCount++;
+      }
+    }
+
+    // If we made repairs, replace the history contents
+    if (repairCount > 0) {
+      log.info('Conversation history repaired', { repairCount, originalLength: history.length, newLength: repairedHistory.length });
+      history.length = 0;
+      history.push(...repairedHistory);
+    }
+  }
+
   async chat(
     userMessage: string,
     options?: { threadId?: string; source?: OverseerThreadSource; sourceId?: string }
@@ -563,6 +639,9 @@ export class OverseerAgent extends EventEmitter {
     this.abortController = new AbortController();
 
     this.updateStatus('thinking');
+
+    // Repair conversation history if it has incomplete tool_use blocks
+    this.repairConversationHistory(threadData.conversationHistory);
 
     // Add to thread's conversation history
     threadData.conversationHistory.push({
