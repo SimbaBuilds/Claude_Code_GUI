@@ -82,7 +82,7 @@ export class TerminalManager extends EventEmitter {
       sessionId: options.resumeSessionId,
       permissionMode: options.permissionMode || 'default',
       status: 'idle',
-      model: options.model || (options.type === 'gemini' ? 'gemini-2.5-pro' : 'sonnet'),
+      model: options.model || (options.type === 'gemini' ? 'gemini-2.5-flash' : 'sonnet'),
       type: options.type || 'claude',
       buffer: [],
       createdAt: Date.now(),
@@ -110,7 +110,7 @@ export class TerminalManager extends EventEmitter {
       ? this.buildGeminiArgs(terminal, input)
       : this.buildClaudeArgs(terminal, input);
 
-    log.info('Sending to terminal', { id, type: terminal.type, inputPreview: input.slice(0, 100), argsCount: args.length });
+    log.info('Sending to terminal', { id, type: terminal.type, inputPreview: input.slice(0, 100), argsCount: args.length, args: JSON.stringify(args) });
 
     // Update status to thinking
     this.updateStatus(id, 'thinking');
@@ -251,9 +251,11 @@ export class TerminalManager extends EventEmitter {
 
       try {
         const msg = JSON.parse(line);
+        log.debug('Parsed JSON message', { id, type: terminal.type, msgType: msg.type, msgRole: msg.role });
         this.handleClaudeMessage(id, msg);
       } catch {
-        // Not JSON, might be raw output - ignore
+        // Not JSON, might be raw output - log for debugging
+        log.debug('Non-JSON line received', { id, line: line.slice(0, 200) });
       }
     }
   }
@@ -262,6 +264,76 @@ export class TerminalManager extends EventEmitter {
     const terminal = this.terminals.get(id);
     if (!terminal) return;
 
+    // Route to appropriate handler based on terminal type
+    if (terminal.type === 'gemini') {
+      this.handleGeminiMessage(id, msg);
+    } else {
+      this.handleClaudeFormatMessage(id, msg);
+    }
+  }
+
+  private handleGeminiMessage(id: string, msg: Record<string, unknown>): void {
+    const terminal = this.terminals.get(id);
+    if (!terminal) return;
+
+    log.debug('handleGeminiMessage', { id, msgType: msg.type, msgRole: msg.role, hasContent: !!msg.content });
+
+    // Handle Gemini init message (capture session_id)
+    if (msg.type === 'init') {
+      log.debug('Gemini init message', { id, sessionId: msg.session_id });
+      if (msg.session_id) {
+        terminal.sessionId = msg.session_id as string;
+      }
+      return;
+    }
+
+    // Handle Gemini result message
+    if (msg.type === 'result') {
+      log.debug('Gemini result message', { id, status: msg.status });
+      this.updateStatus(id, 'idle');
+      // Capture session ID if present
+      if (msg.session_id) {
+        terminal.sessionId = msg.session_id as string;
+      }
+      return;
+    }
+
+    // Handle Gemini message format: {"type":"message","role":"assistant","content":"...","delta":true}
+    if (msg.type === 'message' && msg.role === 'assistant') {
+      this.updateStatus(id, 'thinking');
+
+      const content = msg.content;
+      log.debug('Gemini assistant message', { id, contentType: typeof content, contentLen: typeof content === 'string' ? content.length : 'N/A', delta: msg.delta });
+
+      if (typeof content === 'string' && content.length > 0) {
+        // For delta messages, we emit each piece as it arrives
+        // The content is already a string in Gemini format
+        const claudeMessage: ClaudeMessage = {
+          type: 'assistant',
+          content: [{ type: 'text', text: content }],
+          timestamp: Date.now(),
+        };
+
+        log.debug('Emitting Gemini message', { id, delta: msg.delta, textPreview: content.slice(0, 50) });
+
+        // For delta messages, don't deduplicate - each delta is a new piece
+        if (msg.delta === true) {
+          this.emit('message', id, claudeMessage);
+        } else {
+          // For non-delta messages, apply deduplication
+          const contentHash = JSON.stringify(claudeMessage.content);
+          if (contentHash !== terminal.lastMessageHash) {
+            terminal.lastMessageHash = contentHash;
+            this.emit('message', id, claudeMessage);
+          }
+        }
+      }
+    }
+  }
+
+  private handleClaudeFormatMessage(id: string, msg: Record<string, unknown>): void {
+    const terminal = this.terminals.get(id);
+    if (!terminal) return;
 
     // Handle result messages (for session ID capture)
     if (msg.type === 'result') {
