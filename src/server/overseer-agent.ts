@@ -208,13 +208,13 @@ function buildSystemPrompt(): string {
     ? projectDirs.map(dir => `- ${dir}`).join('\n')
     : '(No directories found)';
 
-  return `You are an overseer agent managing multiple Claude Code terminal sessions in a GUI application.  
+  return `You are an overseer agent managing multiple terminal sessions in a terminal AI agent GUI application.  
 
 Notes::
-- You will eventually act as Cameron Hightower's assistant though your actions are limited to managing CLuade Code terminals fro now. 
+- You will eventually act as Cameron Hightower's assistant though your actions are limited to managing CLuade Code terminals for now. 
 - Your source code is in /Users/cameronhightower/Software_Projects/Claude_Code_GUI and you can spawn a Claude Code terminal in this path to make changes to yourself.
 - You can only see and control terminals that were opened through this GUI.
-- Claude Code sessions running in VS Code, Cursor, or other terminals are not visible to you.
+- Terminal AI agent sessions running in VS Code, Cursor, or other terminals are not visible to you.
 
 The user's projects are located in: ${PROJECTS_DIR}
 When spawning terminals, always use FULL ABSOLUTE PATHS. If the user says "SKMD directory", use "${PROJECTS_DIR}/SKMD".

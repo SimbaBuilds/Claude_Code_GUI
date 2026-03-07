@@ -9,6 +9,7 @@ import type { Subprocess } from 'bun';
 import type {
   TerminalInfo,
   TerminalStatus,
+  TerminalType,
   SpawnOptions,
   PermissionMode,
   ClaudeMessage,
@@ -23,6 +24,7 @@ interface Terminal {
   permissionMode: PermissionMode;
   status: TerminalStatus;
   model: string;
+  type: TerminalType;
   buffer: string[];
   createdAt: number;
   messageBuffer: string;
@@ -80,14 +82,15 @@ export class TerminalManager extends EventEmitter {
       sessionId: options.resumeSessionId,
       permissionMode: options.permissionMode || 'default',
       status: 'idle',
-      model: options.model || 'sonnet',
+      model: options.model || (options.type === 'gemini' ? 'gemini-2.5-pro' : 'sonnet'),
+      type: options.type || 'claude',
       buffer: [],
       createdAt: Date.now(),
       messageBuffer: '',
     };
 
     this.terminals.set(id, terminal);
-    log.info('Terminal created', { id, cwd: options.cwd, model: terminal.model, permissionMode: terminal.permissionMode });
+    log.info('Terminal created', { id, cwd: options.cwd, type: terminal.type, model: terminal.model, permissionMode: terminal.permissionMode });
 
     const info = this.getInfo(id)!;
     this.emit('spawned', info);
@@ -101,16 +104,19 @@ export class TerminalManager extends EventEmitter {
       throw new Error(`Terminal ${id} not found`);
     }
 
-    // Build command arguments
-    const args = this.buildClaudeArgs(terminal, input);
+    // Build command and arguments based on terminal type
+    const command = terminal.type === 'gemini' ? 'gemini' : this.claudePath;
+    const args = terminal.type === 'gemini'
+      ? this.buildGeminiArgs(terminal, input)
+      : this.buildClaudeArgs(terminal, input);
 
-    log.info('Sending to terminal', { id, inputPreview: input.slice(0, 100), argsCount: args.length });
+    log.info('Sending to terminal', { id, type: terminal.type, inputPreview: input.slice(0, 100), argsCount: args.length });
 
     // Update status to thinking
     this.updateStatus(id, 'thinking');
 
-    // Spawn claude with the prompt as argument
-    const proc = Bun.spawn([this.claudePath, ...args], {
+    // Spawn CLI with the prompt as argument
+    const proc = Bun.spawn([command, ...args], {
       cwd: terminal.cwd,
       stdin: 'ignore',
       stdout: 'pipe',
@@ -168,6 +174,22 @@ export class TerminalManager extends EventEmitter {
 
     // Add the prompt as the final argument
     args.push(prompt);
+
+    return args;
+  }
+
+  private buildGeminiArgs(terminal: Terminal, prompt: string): string[] {
+    const args: string[] = [];
+
+    // Use headless mode with streaming JSON format
+    // -p requires the prompt as its value
+    args.push('-p', prompt);
+    args.push('--output-format', 'stream-json');
+
+    // Model selection (skip if empty - let CLI use default)
+    if (terminal.model && terminal.model.trim() !== '') {
+      args.push('-m', terminal.model);
+    }
 
     return args;
   }
@@ -380,6 +402,7 @@ export class TerminalManager extends EventEmitter {
       permissionMode: terminal.permissionMode,
       status: terminal.status,
       model: terminal.model,
+      type: terminal.type,
       createdAt: terminal.createdAt,
     };
   }
@@ -399,6 +422,7 @@ export class TerminalManager extends EventEmitter {
       permissionMode: t.permissionMode,
       status: t.status,
       model: t.model,
+      type: t.type,
       createdAt: t.createdAt,
     }));
   }

@@ -55,6 +55,14 @@ export const KEY_SEQUENCES: Record<string, string> = {
   'down': '\x1b[B',
 };
 
+// Terminal types (CLI agents)
+export const TERMINAL_TYPES = [
+  { id: 'claude', name: 'Claude Code' },
+  { id: 'gemini', name: 'Gemini CLI' },
+] as const;
+
+export const DEFAULT_TERMINAL_TYPE = 'claude';
+
 // Default models for Claude Code terminals
 export const MODELS = [
   { id: 'opus', name: 'Claude Opus 4.5', description: 'Most capable' },
@@ -63,6 +71,13 @@ export const MODELS = [
 ];
 
 export const DEFAULT_MODEL = 'opus';
+
+// Models for Gemini CLI terminals (use empty string for CLI default)
+export const GEMINI_MODELS = [
+  { id: '', name: 'Auto (default)', description: 'Let CLI choose' },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Advanced reasoning' },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Fast' },
+];
 
 // Models for Overseer agent (uses full API model IDs)
 export const OVERSEER_MODELS = [

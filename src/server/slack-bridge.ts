@@ -263,7 +263,7 @@ export class SlackBridge extends EventEmitter {
     const blocks: any[] = [
       {
         type: 'header',
-        text: { type: 'plain_text', text: ':robot_face: Claude Code GUI Status' },
+        text: { type: 'plain_text', text: ':robot_face: Terminal Agent GUI Status' },
       },
       {
         type: 'section',

@@ -2,6 +2,8 @@
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
 
+export type TerminalType = 'claude' | 'gemini';
+
 export type TerminalStatus = 'idle' | 'thinking' | 'running_tool' | 'waiting_input' | 'error';
 
 export interface TerminalInfo {
@@ -11,6 +13,7 @@ export interface TerminalInfo {
   permissionMode: PermissionMode;
   status: TerminalStatus;
   model: string;
+  type: TerminalType;
   createdAt: number;
 }
 
@@ -19,6 +22,7 @@ export interface SpawnOptions {
   continueSession?: boolean;
   resumeSessionId?: string;
   model?: string;
+  type?: TerminalType;
   permissionMode?: PermissionMode;
   dangerouslySkipPermissions?: boolean;
 }

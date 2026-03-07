@@ -5,7 +5,8 @@ import { useOverseerStore } from '../stores/overseer';
 import { useHistoryStore } from '../stores/history';
 import { useLayoutStore } from '../stores/layout';
 import { useSessionsStore } from '../stores/sessions';
-import { MODELS, DEFAULT_MODEL, OVERSEER_MODELS } from '../../shared/constants';
+import { MODELS, DEFAULT_MODEL, OVERSEER_MODELS, TERMINAL_TYPES, DEFAULT_TERMINAL_TYPE, GEMINI_MODELS } from '../../shared/constants';
+import type { TerminalType } from '../../shared/types';
 import { useState } from 'react';
 
 export function Header() {
@@ -15,11 +16,26 @@ export function Header() {
   const { save: saveLayout } = useLayoutStore();
   const { setOpen: setSessionBrowserOpen } = useSessionsStore();
   const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
+  const [selectedType, setSelectedType] = useState<TerminalType>(DEFAULT_TERMINAL_TYPE as TerminalType);
+
+  // Get models based on selected terminal type
+  const availableModels = selectedType === 'gemini' ? GEMINI_MODELS : MODELS;
 
   const handleNewTerminal = () => {
     const cwd = prompt('Working directory:', '/Users/cameronhightower/Software_Projects');
     if (cwd) {
-      spawn({ cwd, model: selectedModel });
+      spawn({ cwd, model: selectedModel, type: selectedType });
+    }
+  };
+
+  // Reset model when terminal type changes
+  const handleTypeChange = (newType: TerminalType) => {
+    setSelectedType(newType);
+    // Set default model for the new type
+    if (newType === 'gemini') {
+      setSelectedModel(GEMINI_MODELS[0].id);
+    } else {
+      setSelectedModel(DEFAULT_MODEL);
     }
   };
 
@@ -32,7 +48,7 @@ export function Header() {
   return (
     <header className="flex items-center justify-between px-4 py-2 bg-bg-secondary border-b border-border">
       <div className="flex items-center gap-4">
-        <h1 className="text-lg font-semibold text-text-primary">Claude Code GUI</h1>
+        <h1 className="text-lg font-semibold text-text-primary">Terminal Agent GUI</h1>
 
         <button
           onClick={handleNewTerminal}
@@ -57,13 +73,28 @@ export function Header() {
         </button>
 
         <div className="flex items-center gap-1">
-          <span className="text-text-secondary text-xs">Terminal:</span>
+          <span className="text-text-secondary text-xs">CLI:</span>
+          <select
+            value={selectedType}
+            onChange={(e) => handleTypeChange(e.target.value as TerminalType)}
+            className="bg-bg-tertiary border border-border rounded px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+          >
+            {TERMINAL_TYPES.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <span className="text-text-secondary text-xs">Model:</span>
           <select
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
-            className="bg-bg-tertiary border border-border rounded px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+            className="bg-bg-tertiary border border-border rounded px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
           >
-            {MODELS.map((model) => (
+            {availableModels.map((model) => (
               <option key={model.id} value={model.id}>
                 {model.name}
               </option>

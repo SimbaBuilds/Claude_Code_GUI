@@ -136,7 +136,7 @@ export class TelegramBridge extends EventEmitter {
       case '/start':
         await this.sendMessage(
           chatId,
-          `👋 *Claude Code GUI Overseer*\n\n` +
+          `👋 *Terminal Agent GUI Overseer*\n\n` +
             `I can help you monitor and control your Claude Code terminals remotely.\n\n` +
             `*Commands:*\n` +
             `/status - Show all terminal statuses\n` +
