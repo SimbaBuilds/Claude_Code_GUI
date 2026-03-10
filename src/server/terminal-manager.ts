@@ -80,7 +80,7 @@ export class TerminalManager extends EventEmitter {
       id,
       cwd: options.cwd,
       sessionId: options.resumeSessionId,
-      permissionMode: options.permissionMode || 'default',
+      permissionMode: options.permissionMode || 'bypassPermissions',
       status: 'idle',
       model: options.model || (options.type === 'gemini' ? 'gemini-2.5-flash' : 'sonnet'),
       type: options.type || 'claude',

@@ -1,0 +1,12 @@
+From: Info Docuspa <info@docuspa.com>
+To: Cameron Hightower <cameron@juniperassistant.com>
+Date: Mon, 9 Mar 2026 12:10:54 -0400
+Subject: Docuspa changes
+
+============================================================
+
+I am using the SKMD wellness one but i think the other med spas are using
+another one. Can you check please and if so make them all look like SKMD?
+
+I have attached changes. Please make all fields mandatory. They arent on
+SKMD one...
