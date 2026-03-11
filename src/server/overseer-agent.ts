@@ -4,7 +4,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { EventEmitter } from 'events';
 import { existsSync, readdirSync, statSync } from 'fs';
 import { resolve, isAbsolute, join } from 'path';
-import Imap from 'imap';
 import type { TerminalManager } from './terminal-manager';
 import type { HistoryService } from './history-service';
 import type {
@@ -20,168 +19,482 @@ import { overseerLogger as log } from './logger';
 
 const PROJECTS_DIR = '/Users/cameronhightower/Software_Projects';
 
-// Gmail account configurations
-const GMAIL_ACCOUNTS = {
-  work: {
-    email: 'cameron.hightower@simbabuilds.com',
-    password: 'knfc cgob uxls apao',
-  },
-  personal: {
-    email: 'cmrn.hightower@gmail.com',
-    password: 'gmmx mipl qbtz swax',
-  },
+// Gmail API configuration
+const GMAIL_TOKENS_PATH = '/Users/cameronhightower/Software_Projects/Terminal_Agent_GUI/gmail-tokens.json';
+const GMAIL_ACCOUNT_ALIASES: Record<string, string> = {
+  work: 'cameron.hightower@simbabuilds.com',
+  personal: 'cmrn.hightower@gmail.com',
 };
 
-interface EmailSummary {
+interface GmailTokens {
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
+  obtained_at: string;
+}
+
+interface GmailTokensFile {
+  [email: string]: GmailTokens;
+}
+
+interface GmailMessageHeader {
+  name: string;
+  value: string;
+}
+
+interface GmailMessagePart {
+  partId?: string;
+  mimeType: string;
+  filename?: string;
+  headers?: GmailMessageHeader[];
+  body: {
+    size: number;
+    data?: string;
+    attachmentId?: string;
+  };
+  parts?: GmailMessagePart[];
+}
+
+interface GmailMessage {
+  id: string;
+  threadId: string;
+  labelIds?: string[];
+  snippet: string;
+  payload?: {
+    headers: GmailMessageHeader[];
+    mimeType: string;
+    body: {
+      size: number;
+      data?: string;
+    };
+    parts?: GmailMessagePart[];
+  };
+  internalDate?: string;
+}
+
+interface GmailThread {
+  id: string;
+  snippet: string;
+  historyId: string;
+  messages?: GmailMessage[];
+}
+
+interface GmailSearchResult {
+  messages?: Array<{ id: string; threadId: string }>;
+  threads?: Array<{ id: string; snippet: string; historyId: string }>;
+  nextPageToken?: string;
+  resultSizeEstimate?: number;
+}
+
+// Load tokens from file
+async function loadGmailTokens(): Promise<GmailTokensFile> {
+  const { readFile } = await import('fs/promises');
+  const content = await readFile(GMAIL_TOKENS_PATH, 'utf-8');
+  return JSON.parse(content);
+}
+
+// Save tokens to file
+async function saveGmailTokens(tokens: GmailTokensFile): Promise<void> {
+  const { writeFile } = await import('fs/promises');
+  await writeFile(GMAIL_TOKENS_PATH, JSON.stringify(tokens, null, 2));
+}
+
+// Refresh access token if expired
+async function refreshAccessToken(email: string, tokens: GmailTokens): Promise<GmailTokens> {
+  const clientId = process.env.G_CLIENT_ID;
+  const clientSecret = process.env.G_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    throw new Error('G_CLIENT_ID and G_CLIENT_SECRET environment variables are required');
+  }
+
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: tokens.refresh_token,
+      grant_type: 'refresh_token',
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to refresh token: ${response.status} ${errorText}`);
+  }
+
+  const data = await response.json() as { access_token: string; expires_in: number };
+  const now = Date.now();
+
+  const updatedTokens: GmailTokens = {
+    ...tokens,
+    access_token: data.access_token,
+    expires_at: now + (data.expires_in * 1000),
+    obtained_at: new Date(now).toISOString(),
+  };
+
+  // Save updated tokens
+  const allTokens = await loadGmailTokens();
+  allTokens[email] = updatedTokens;
+  await saveGmailTokens(allTokens);
+
+  log.info('Gmail token refreshed', { email });
+
+  return updatedTokens;
+}
+
+// Get valid access token, refreshing if necessary
+async function getValidAccessToken(email: string): Promise<string> {
+  const allTokens = await loadGmailTokens();
+  let tokens = allTokens[email];
+
+  if (!tokens) {
+    throw new Error(`No tokens found for ${email}`);
+  }
+
+  // Check if token is expired (with 5 minute buffer)
+  const now = Date.now();
+  if (tokens.expires_at - now < 5 * 60 * 1000) {
+    log.info('Gmail token expired or expiring soon, refreshing', { email });
+    tokens = await refreshAccessToken(email, tokens);
+  }
+
+  return tokens.access_token;
+}
+
+// Resolve account alias to email
+function resolveAccountEmail(account: string): string {
+  return GMAIL_ACCOUNT_ALIASES[account] || account;
+}
+
+// Decode base64url encoded content
+function decodeBase64Url(data: string): string {
+  // Convert base64url to base64
+  const base64 = data.replace(/-/g, '+').replace(/_/g, '/');
+  // Decode
+  return Buffer.from(base64, 'base64').toString('utf-8');
+}
+
+// Decode MIME encoded words (RFC 2047)
+function decodeMimeWord(text: string): string {
+  // Match =?charset?encoding?text?= patterns
+  const mimePattern = /=\?([^?]+)\?([BQ])\?([^?]*)\?=/gi;
+  return text.replace(mimePattern, (match, charset, encoding, encodedText) => {
+    try {
+      if (encoding.toUpperCase() === 'B') {
+        // Base64 encoding
+        return Buffer.from(encodedText, 'base64').toString('utf-8');
+      } else if (encoding.toUpperCase() === 'Q') {
+        // Quoted-printable encoding
+        const decoded = encodedText
+          .replace(/_/g, ' ')
+          .replace(/=([0-9A-F]{2})/gi, (_: string, hex: string) =>
+            String.fromCharCode(parseInt(hex, 16))
+          );
+        return decoded;
+      }
+    } catch {
+      // Return original on error
+    }
+    return match;
+  });
+}
+
+// Get header value from message
+function getHeader(message: GmailMessage, name: string): string {
+  const header = message.payload?.headers?.find(
+    h => h.name.toLowerCase() === name.toLowerCase()
+  );
+  return header ? decodeMimeWord(header.value) : '';
+}
+
+// Extract text body from message parts
+function extractTextBody(part: GmailMessagePart): string {
+  if (part.mimeType === 'text/plain' && part.body.data) {
+    return decodeBase64Url(part.body.data);
+  }
+
+  if (part.parts) {
+    for (const subPart of part.parts) {
+      const text = extractTextBody(subPart);
+      if (text) return text;
+    }
+  }
+
+  // Fallback to text/html if no plain text
+  if (part.mimeType === 'text/html' && part.body.data) {
+    const html = decodeBase64Url(part.body.data);
+    // Strip HTML tags for basic text extraction
+    return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  return '';
+}
+
+// Extract attachments info from message parts
+function extractAttachments(part: GmailMessagePart): Array<{ filename: string; mimeType: string; size: number }> {
+  const attachments: Array<{ filename: string; mimeType: string; size: number }> = [];
+
+  if (part.filename && part.filename.length > 0) {
+    attachments.push({
+      filename: part.filename,
+      mimeType: part.mimeType,
+      size: part.body.size,
+    });
+  }
+
+  if (part.parts) {
+    for (const subPart of part.parts) {
+      attachments.push(...extractAttachments(subPart));
+    }
+  }
+
+  return attachments;
+}
+
+// Search Gmail messages
+async function searchGmailMessages(
+  email: string,
+  query: string,
+  maxResults: number = 10
+): Promise<Array<{ id: string; threadId: string; snippet: string; from: string; to: string; subject: string; date: string }>> {
+  const accessToken = await getValidAccessToken(email);
+
+  const searchUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
+  searchUrl.searchParams.set('q', query);
+  searchUrl.searchParams.set('maxResults', maxResults.toString());
+
+  const searchResponse = await fetch(searchUrl.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!searchResponse.ok) {
+    const errorText = await searchResponse.text();
+    throw new Error(`Gmail search failed: ${searchResponse.status} ${errorText}`);
+  }
+
+  const searchData = await searchResponse.json() as GmailSearchResult;
+
+  if (!searchData.messages || searchData.messages.length === 0) {
+    return [];
+  }
+
+  // Fetch message metadata for each result
+  const results = await Promise.all(
+    searchData.messages.map(async (msg) => {
+      const msgUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`;
+      const msgResponse = await fetch(msgUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!msgResponse.ok) {
+        return null;
+      }
+
+      const message = await msgResponse.json() as GmailMessage;
+
+      return {
+        id: message.id,
+        threadId: message.threadId,
+        snippet: message.snippet,
+        from: getHeader(message, 'From'),
+        to: getHeader(message, 'To'),
+        subject: getHeader(message, 'Subject'),
+        date: getHeader(message, 'Date'),
+      };
+    })
+  );
+
+  return results.filter((r): r is NonNullable<typeof r> => r !== null);
+}
+
+// Search Gmail threads
+async function searchGmailThreads(
+  email: string,
+  query: string,
+  maxResults: number = 10
+): Promise<Array<{ id: string; snippet: string; historyId: string; messagesCount: number }>> {
+  const accessToken = await getValidAccessToken(email);
+
+  const searchUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/threads');
+  searchUrl.searchParams.set('q', query);
+  searchUrl.searchParams.set('maxResults', maxResults.toString());
+
+  const searchResponse = await fetch(searchUrl.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (!searchResponse.ok) {
+    const errorText = await searchResponse.text();
+    throw new Error(`Gmail thread search failed: ${searchResponse.status} ${errorText}`);
+  }
+
+  const searchData = await searchResponse.json() as GmailSearchResult;
+
+  if (!searchData.threads || searchData.threads.length === 0) {
+    return [];
+  }
+
+  // Fetch thread details for message count
+  const results = await Promise.all(
+    searchData.threads.map(async (thread) => {
+      const threadUrl = `https://gmail.googleapis.com/gmail/v1/users/me/threads/${thread.id}?format=minimal`;
+      const threadResponse = await fetch(threadUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!threadResponse.ok) {
+        return {
+          id: thread.id,
+          snippet: thread.snippet,
+          historyId: thread.historyId,
+          messagesCount: 0,
+        };
+      }
+
+      const threadData = await threadResponse.json() as GmailThread;
+
+      return {
+        id: thread.id,
+        snippet: thread.snippet,
+        historyId: thread.historyId,
+        messagesCount: threadData.messages?.length || 0,
+      };
+    })
+  );
+
+  return results;
+}
+
+// Read a single Gmail message
+async function readGmailMessage(
+  email: string,
+  messageId: string,
+  format: 'full' | 'summary' = 'summary'
+): Promise<{
+  id: string;
+  threadId: string;
   from: string;
   to: string;
   subject: string;
   date: string;
   snippet: string;
-}
+  labels: string[];
+  body?: string;
+  attachments?: Array<{ filename: string; mimeType: string; size: number }>;
+}> {
+  const accessToken = await getValidAccessToken(email);
 
-async function readGmail(
-  account: 'work' | 'personal' = 'work',
-  folder: string = 'INBOX',
-  searchQuery?: string,
-  limit: number = 10,
-  daysBack: number = 7
-): Promise<EmailSummary[]> {
-  const config = GMAIL_ACCOUNTS[account];
+  const msgUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`;
+  const msgResponse = await fetch(msgUrl, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
 
-  return new Promise((resolve, reject) => {
-    const imap = new Imap({
-      user: config.email,
-      password: config.password,
-      host: 'imap.gmail.com',
-      port: 993,
-      tls: true,
-      tlsOptions: { rejectUnauthorized: false },
-    });
+  if (!msgResponse.ok) {
+    const errorText = await msgResponse.text();
+    throw new Error(`Failed to read message: ${msgResponse.status} ${errorText}`);
+  }
 
-    const emails: EmailSummary[] = [];
+  const message = await msgResponse.json() as GmailMessage;
 
-    function openInbox(cb: (err: Error | null, box?: unknown) => void) {
-      imap.openBox(folder, true, cb);
+  const result: {
+    id: string;
+    threadId: string;
+    from: string;
+    to: string;
+    subject: string;
+    date: string;
+    snippet: string;
+    labels: string[];
+    body?: string;
+    attachments?: Array<{ filename: string; mimeType: string; size: number }>;
+  } = {
+    id: message.id,
+    threadId: message.threadId,
+    from: getHeader(message, 'From'),
+    to: getHeader(message, 'To'),
+    subject: getHeader(message, 'Subject'),
+    date: getHeader(message, 'Date'),
+    snippet: message.snippet,
+    labels: message.labelIds || [],
+  };
+
+  if (format === 'full' && message.payload) {
+    // Extract body text
+    if (message.payload.body.data) {
+      result.body = decodeBase64Url(message.payload.body.data);
+    } else if (message.payload.parts) {
+      result.body = extractTextBody(message.payload as GmailMessagePart);
     }
 
-    imap.once('ready', () => {
-      openInbox((err) => {
-        if (err) {
-          imap.end();
-          reject(err);
-          return;
-        }
+    // Extract attachments
+    if (message.payload.parts) {
+      result.attachments = extractAttachments(message.payload as GmailMessagePart);
+    }
+  }
 
-        // Build search criteria
-        const searchCriteria: unknown[] = ['ALL'];
+  return result;
+}
 
-        // Add date filter
-        const sinceDate = new Date();
-        sinceDate.setDate(sinceDate.getDate() - daysBack);
-        searchCriteria.push(['SINCE', sinceDate]);
+// Execute manage_email tool
+async function executeManageEmail(input: {
+  account: string;
+  action: 'search' | 'read';
+  query?: string;
+  num_results?: number;
+  result_type?: 'threads' | 'messages';
+  message_id?: string;
+  format?: 'full' | 'summary';
+}): Promise<unknown> {
+  const email = resolveAccountEmail(input.account);
 
-        // Add custom search query if provided
-        if (searchQuery) {
-          // Parse search query - simple implementation
-          // Support formats like: SUBJECT "text", FROM "email", UNSEEN, etc.
-          const queryUpper = searchQuery.toUpperCase();
-          if (queryUpper.includes('SUBJECT')) {
-            const match = searchQuery.match(/SUBJECT\s+"([^"]+)"/i);
-            if (match) searchCriteria.push(['HEADER', 'SUBJECT', match[1]]);
-          } else if (queryUpper.includes('FROM')) {
-            const match = searchQuery.match(/FROM\s+"([^"]+)"/i);
-            if (match) searchCriteria.push(['HEADER', 'FROM', match[1]]);
-          } else if (queryUpper.includes('UNSEEN')) {
-            searchCriteria.push('UNSEEN');
-          } else if (queryUpper.includes('TO')) {
-            const match = searchQuery.match(/TO\s+"([^"]+)"/i);
-            if (match) searchCriteria.push(['HEADER', 'TO', match[1]]);
-          }
-        }
+  if (input.action === 'search') {
+    if (!input.query) {
+      return { error: 'Query is required for search action' };
+    }
 
-        imap.search(searchCriteria, (err, results) => {
-          if (err) {
-            imap.end();
-            reject(err);
-            return;
-          }
+    const maxResults = input.num_results || 10;
+    const resultType = input.result_type || 'messages';
 
-          if (!results || results.length === 0) {
-            imap.end();
-            resolve([]);
-            return;
-          }
+    if (resultType === 'threads') {
+      const threads = await searchGmailThreads(email, input.query, maxResults);
+      return {
+        success: true,
+        account: email,
+        result_type: 'threads',
+        count: threads.length,
+        threads,
+      };
+    } else {
+      const messages = await searchGmailMessages(email, input.query, maxResults);
+      return {
+        success: true,
+        account: email,
+        result_type: 'messages',
+        count: messages.length,
+        messages,
+      };
+    }
+  } else if (input.action === 'read') {
+    if (!input.message_id) {
+      return { error: 'message_id is required for read action' };
+    }
 
-          // Limit results
-          const limitedResults = results.slice(-limit);
+    const format = input.format || 'summary';
+    const message = await readGmailMessage(email, input.message_id, format);
 
-          const f = imap.fetch(limitedResults, {
-            bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)', 'TEXT'],
-            struct: true,
-          });
+    return {
+      success: true,
+      account: email,
+      format,
+      message,
+    };
+  }
 
-          f.on('message', (msg) => {
-            let header = '';
-            let body = '';
-
-            msg.on('body', (stream, info) => {
-              let buffer = '';
-              stream.on('data', (chunk) => {
-                buffer += chunk.toString('utf8');
-              });
-              stream.once('end', () => {
-                if (info.which === 'TEXT') {
-                  body = buffer;
-                } else {
-                  header = buffer;
-                }
-              });
-            });
-
-            msg.once('end', () => {
-              // Parse header
-              const fromMatch = header.match(/From:\s*(.+)/i);
-              const toMatch = header.match(/To:\s*(.+)/i);
-              const subjectMatch = header.match(/Subject:\s*(.+)/i);
-              const dateMatch = header.match(/Date:\s*(.+)/i);
-
-              // Create snippet from body (first 200 chars, remove extra whitespace)
-              const cleanBody = body.replace(/\s+/g, ' ').trim();
-              const snippet = cleanBody.slice(0, 200) + (cleanBody.length > 200 ? '...' : '');
-
-              emails.push({
-                from: fromMatch && fromMatch[1] ? fromMatch[1].trim() : 'Unknown',
-                to: toMatch && toMatch[1] ? toMatch[1].trim() : 'Unknown',
-                subject: subjectMatch && subjectMatch[1] ? subjectMatch[1].trim() : '(No subject)',
-                date: dateMatch && dateMatch[1] ? dateMatch[1].trim() : 'Unknown',
-                snippet,
-              });
-            });
-          });
-
-          f.once('error', (err) => {
-            imap.end();
-            reject(err);
-          });
-
-          f.once('end', () => {
-            imap.end();
-          });
-        });
-      });
-    });
-
-    imap.once('error', (err) => {
-      reject(err);
-    });
-
-    imap.once('end', () => {
-      resolve(emails);
-    });
-
-    imap.connect();
-  });
+  return { error: `Unknown action: ${input.action}` };
 }
 
 function getProjectDirectories(): string[] {
@@ -233,7 +546,7 @@ You have access to these tools to monitor and control the terminals:
 6. set_permission_mode - Change a terminal's permission mode (default, acceptEdits, bypassPermissions, plan)
 7. search_history - Search past chat sessions
 8. sleep - Pause your execution and wait for conditions to be met
-9. read_gmail - Check Cameron's email via IMAP (work or personal account)
+9. manage_email - Search and read Cameron's Gmail (work or personal account) using Gmail API. Supports Gmail search syntax.
 
 Your responsibilities:
 1. Monitor ongoing work across all terminals
@@ -381,33 +694,44 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: 'read_gmail',
-    description: 'Check Cameron\'s email using IMAP. Returns email summaries with sender, recipient, subject, date, and snippet.',
+    name: 'manage_email',
+    description: 'Search and read emails from Gmail accounts using the Gmail API. Supports Gmail search syntax (e.g., "from:boss subject:urgent after:2024/01/01").',
     input_schema: {
       type: 'object',
       properties: {
         account: {
           type: 'string',
-          enum: ['work', 'personal'],
-          description: 'Which email account to check (default: work)',
+          description: 'Account to use: "work" (cameron.hightower@simbabuilds.com), "personal" (cmrn.hightower@gmail.com), or an email address',
         },
-        folder: {
+        action: {
           type: 'string',
-          description: 'IMAP folder to search (default: INBOX)',
+          enum: ['search', 'read'],
+          description: 'Action to perform: search for emails or read a specific message',
         },
-        search_query: {
+        query: {
           type: 'string',
-          description: 'IMAP search query. Examples: SUBJECT "meeting", FROM "boss@example.com", UNSEEN, TO "someone@example.com"',
+          description: 'Gmail search query (e.g., "from:boss subject:urgent", "is:unread", "after:2024/01/01"). Required for search action.',
         },
-        limit: {
+        num_results: {
           type: 'number',
-          description: 'Maximum number of emails to return (default: 10)',
+          description: 'Maximum number of results for search (default: 10)',
         },
-        days_back: {
-          type: 'number',
-          description: 'Only fetch emails from the last N days (default: 7)',
+        result_type: {
+          type: 'string',
+          enum: ['threads', 'messages'],
+          description: 'Return threads (conversations) or individual messages (default: messages)',
+        },
+        message_id: {
+          type: 'string',
+          description: 'Message ID to read. Required for read action.',
+        },
+        format: {
+          type: 'string',
+          enum: ['full', 'summary'],
+          description: 'Output format for read action: "full" includes body and attachments, "summary" includes metadata only (default: summary)',
         },
       },
+      required: ['account', 'action'],
     },
   },
 ];
@@ -912,24 +1236,21 @@ export class OverseerAgent extends EventEmitter {
       case 'sleep':
         return this.startSleep(input);
 
-      case 'read_gmail':
+      case 'manage_email':
         try {
-          const emails = await readGmail(
-            (input.account as 'work' | 'personal') || 'work',
-            (input.folder as string) || 'INBOX',
-            input.search_query as string | undefined,
-            (input.limit as number) || 10,
-            (input.days_back as number) || 7
-          );
-          return {
-            success: true,
-            count: emails.length,
-            emails,
-          };
+          return await executeManageEmail(input as {
+            account: string;
+            action: 'search' | 'read';
+            query?: string;
+            num_results?: number;
+            result_type?: 'threads' | 'messages';
+            message_id?: string;
+            format?: 'full' | 'summary';
+          });
         } catch (error) {
-          log.error('Gmail read error', { error: String(error) });
+          log.error('Gmail API error', { error: String(error) });
           return {
-            error: `Failed to read Gmail: ${error instanceof Error ? error.message : String(error)}`,
+            error: `Gmail API error: ${error instanceof Error ? error.message : String(error)}`,
           };
         }
 

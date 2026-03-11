@@ -52,3 +52,6 @@ bun.lock
 .creds.md
 creds.md
 docs/users_gmail/__pycache__/read_gmail.cpython-311.pyc
+client_secret_959980935114-mfcdu1u9202nqdgcs3qgvjpso0p8tepr.apps.googleusercontent.com.json
+gmail-oauth.ts
+gmail-tokens.json
