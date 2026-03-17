@@ -1,17 +1,18 @@
 .PHONY: run-gui gui build build-css install dev run-awake
 
 BUN := ~/.bun/bin/bun
+PORT ?= 2999
 
 run-gui:
-	$(BUN) run src/server/index.ts
+	PORT=$(PORT) $(BUN) run src/server/index.ts
 
 gui: run-gui
 
 run-awake:
-	caffeinate -i $(BUN) run src/server/index.ts
+	PORT=$(PORT) caffeinate -i $(BUN) run src/server/index.ts
 
 dev:
-	$(BUN) run --watch src/server/index.ts
+	PORT=$(PORT) $(BUN) run --watch src/server/index.ts
 
 build:
 	$(BUN) build src/client/main.tsx --outdir dist/client --minify
