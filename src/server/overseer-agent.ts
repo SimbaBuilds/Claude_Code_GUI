@@ -1182,11 +1182,24 @@ export class OverseerAgent extends EventEmitter {
       case 'list_terminals':
         return this.terminalManager.list();
 
-      case 'get_terminal_buffer':
-        return this.terminalManager.getBuffer(
+      case 'get_terminal_buffer': {
+        const buffer = this.terminalManager.getBuffer(
           input.terminal_id as string,
           (input.lines as number) || 50
         );
+        // Join buffer and truncate to save tokens (keep the END/tail of output)
+        const MAX_BUFFER_CHARS = 15000;
+        const bufferStr = Array.isArray(buffer) ? buffer.join('\n') : String(buffer);
+        if (bufferStr.length > MAX_BUFFER_CHARS) {
+          log.info('Truncating terminal buffer', {
+            terminalId: input.terminal_id,
+            originalLength: bufferStr.length,
+            truncatedTo: MAX_BUFFER_CHARS,
+          });
+          return `[...truncated, showing last ${MAX_BUFFER_CHARS} chars...]\n` + bufferStr.slice(-MAX_BUFFER_CHARS);
+        }
+        return bufferStr;
+      }
 
       case 'send_to_terminal':
         this.terminalManager.send(input.terminal_id as string, input.message as string);
@@ -1226,19 +1239,42 @@ export class OverseerAgent extends EventEmitter {
         );
         return { success: true };
 
-      case 'search_history':
-        return await this.historyService.searchMessages(
+      case 'search_history': {
+        const MAX_CONTENT_CHARS = 300;
+        const results = await this.historyService.searchMessages(
           input.query as string,
           undefined,
-          (input.limit as number) || 10
+          (input.limit as number) || 5 // Reduced default from 10 to 5
         );
+        // Truncate each result's message.content to save tokens
+        if (Array.isArray(results)) {
+          let truncatedCount = 0;
+          for (const result of results) {
+            if (result && typeof result === 'object' && 'message' in result) {
+              const msg = result.message as { content?: string };
+              if (msg && typeof msg.content === 'string' && msg.content.length > MAX_CONTENT_CHARS) {
+                msg.content = msg.content.slice(0, MAX_CONTENT_CHARS) + '...';
+                truncatedCount++;
+              }
+            }
+          }
+          if (truncatedCount > 0) {
+            log.info('Truncated search_history results', {
+              query: input.query,
+              resultsCount: results.length,
+              truncatedCount,
+            });
+          }
+        }
+        return results;
+      }
 
       case 'sleep':
         return this.startSleep(input);
 
       case 'manage_email':
         try {
-          return await executeManageEmail(input as {
+          const emailResult = await executeManageEmail(input as {
             account: string;
             action: 'search' | 'read';
             query?: string;
@@ -1247,6 +1283,26 @@ export class OverseerAgent extends EventEmitter {
             message_id?: string;
             format?: 'full' | 'summary';
           });
+          // Truncate email body for 'read' action with 'full' format to save tokens
+          const MAX_EMAIL_BODY_CHARS = 3000;
+          if (
+            input.action === 'read' &&
+            input.format === 'full' &&
+            emailResult &&
+            typeof emailResult === 'object' &&
+            'message' in emailResult
+          ) {
+            const msg = (emailResult as { message?: { body?: string } }).message;
+            if (msg && typeof msg.body === 'string' && msg.body.length > MAX_EMAIL_BODY_CHARS) {
+              log.info('Truncating email body', {
+                messageId: input.message_id,
+                originalLength: msg.body.length,
+                truncatedTo: MAX_EMAIL_BODY_CHARS,
+              });
+              msg.body = msg.body.slice(0, MAX_EMAIL_BODY_CHARS) + `\n\n[...truncated, showing first ${MAX_EMAIL_BODY_CHARS} chars of ${msg.body.length} total...]`;
+            }
+          }
+          return emailResult;
         } catch (error) {
           log.error('Gmail API error', { error: String(error) });
           return {
