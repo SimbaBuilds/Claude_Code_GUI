@@ -439,15 +439,84 @@ async function readGmailMessage(
   return result;
 }
 
+// Create a Gmail draft
+async function createGmailDraft(
+  email: string,
+  to: string,
+  subject: string,
+  body: string,
+  cc?: string,
+  bcc?: string,
+  in_reply_to?: string,
+): Promise<unknown> {
+  const accessToken = await getValidAccessToken(email);
+
+  // Build RFC 2822 message
+  const headers: string[] = [
+    `From: ${email}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+  ];
+  if (cc) headers.push(`Cc: ${cc}`);
+  if (bcc) headers.push(`Bcc: ${bcc}`);
+  if (in_reply_to) headers.push(`In-Reply-To: ${in_reply_to}`);
+
+  const rawMessage = headers.join('\r\n') + '\r\n\r\n' + body;
+  const encodedMessage = Buffer.from(rawMessage)
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  const requestBody: { message: { raw: string; threadId?: string } } = {
+    message: { raw: encodedMessage },
+  };
+  if (in_reply_to) {
+    // If replying, try to place in same thread by looking up the original message
+    requestBody.message.threadId = in_reply_to;
+  }
+
+  const response = await fetch(
+    'https://gmail.googleapis.com/gmail/v1/users/me/drafts',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    },
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gmail API error creating draft: ${response.status} ${errorText}`);
+  }
+
+  const draft = await response.json();
+  return {
+    id: draft.id,
+    message_id: draft.message?.id,
+    thread_id: draft.message?.threadId,
+  };
+}
+
 // Execute manage_email tool
 async function executeManageEmail(input: {
   account: string;
-  action: 'search' | 'read';
+  action: 'search' | 'read' | 'draft';
   query?: string;
   num_results?: number;
   result_type?: 'threads' | 'messages';
   message_id?: string;
   format?: 'full' | 'summary';
+  to?: string;
+  subject?: string;
+  body?: string;
+  cc?: string;
+  bcc?: string;
+  in_reply_to?: string;
 }): Promise<unknown> {
   const email = resolveAccountEmail(input.account);
 
@@ -491,6 +560,33 @@ async function executeManageEmail(input: {
       account: email,
       format,
       message,
+    };
+  } else if (input.action === 'draft') {
+    if (!input.to) {
+      return { error: '"to" is required for draft action' };
+    }
+    if (!input.subject) {
+      return { error: '"subject" is required for draft action' };
+    }
+    if (!input.body) {
+      return { error: '"body" is required for draft action' };
+    }
+
+    const draft = await createGmailDraft(
+      email,
+      input.to,
+      input.subject,
+      input.body,
+      input.cc,
+      input.bcc,
+      input.in_reply_to,
+    );
+
+    return {
+      success: true,
+      account: email,
+      action: 'draft',
+      draft,
     };
   }
 
@@ -546,7 +642,7 @@ You have access to these tools to monitor and control the terminals:
 6. set_permission_mode - Change a terminal's permission mode (default, acceptEdits, bypassPermissions, plan)
 7. search_history - Search past chat sessions
 8. sleep - Pause your execution and wait for conditions to be met
-9. manage_email - Search and read Cameron's Gmail (work or personal account) using Gmail API. Supports Gmail search syntax.
+9. manage_email - Search, read, and draft emails in Cameron's Gmail (work or personal account) using Gmail API. Supports Gmail search syntax. Draft action creates a draft for Cameron to review and send.
 
 Your responsibilities:
 1. Monitor ongoing work across all terminals
@@ -695,7 +791,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'manage_email',
-    description: 'Search and read emails from Gmail accounts using the Gmail API. Supports Gmail search syntax (e.g., "from:boss subject:urgent after:2024/01/01").',
+    description: 'Search, read, and draft emails in Gmail accounts using the Gmail API. Supports Gmail search syntax (e.g., "from:boss subject:urgent after:2024/01/01"). Draft action creates a draft in Gmail that the user can review and send manually.',
     input_schema: {
       type: 'object',
       properties: {
@@ -705,8 +801,8 @@ const TOOLS: Tool[] = [
         },
         action: {
           type: 'string',
-          enum: ['search', 'read'],
-          description: 'Action to perform: search for emails or read a specific message',
+          enum: ['search', 'read', 'draft'],
+          description: 'Action to perform: search for emails, read a specific message, or create a draft',
         },
         query: {
           type: 'string',
@@ -729,6 +825,30 @@ const TOOLS: Tool[] = [
           type: 'string',
           enum: ['full', 'summary'],
           description: 'Output format for read action: "full" includes body and attachments, "summary" includes metadata only (default: summary)',
+        },
+        to: {
+          type: 'string',
+          description: 'Recipient email address(es), comma-separated. Required for draft action.',
+        },
+        subject: {
+          type: 'string',
+          description: 'Email subject line. Required for draft action.',
+        },
+        body: {
+          type: 'string',
+          description: 'Email body text (plain text). Required for draft action.',
+        },
+        cc: {
+          type: 'string',
+          description: 'CC recipient(s), comma-separated. Optional for draft action.',
+        },
+        bcc: {
+          type: 'string',
+          description: 'BCC recipient(s), comma-separated. Optional for draft action.',
+        },
+        in_reply_to: {
+          type: 'string',
+          description: 'Thread ID to place the draft in (for reply drafts). Optional for draft action.',
         },
       },
       required: ['account', 'action'],
@@ -1276,12 +1396,18 @@ export class OverseerAgent extends EventEmitter {
         try {
           const emailResult = await executeManageEmail(input as {
             account: string;
-            action: 'search' | 'read';
+            action: 'search' | 'read' | 'draft';
             query?: string;
             num_results?: number;
             result_type?: 'threads' | 'messages';
             message_id?: string;
             format?: 'full' | 'summary';
+            to?: string;
+            subject?: string;
+            body?: string;
+            cc?: string;
+            bcc?: string;
+            in_reply_to?: string;
           });
           // Truncate email body for 'read' action with 'full' format to save tokens
           const MAX_EMAIL_BODY_CHARS = 3000;
