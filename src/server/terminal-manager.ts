@@ -39,7 +39,7 @@ export class TerminalManager extends EventEmitter {
 
   constructor() {
     super();
-    this.claudePath = join(homedir(), '.claude', 'local', 'claude');
+    this.claudePath = join(homedir(), '.local', 'bin', 'claude');
   }
 
   spawn(options: SpawnOptions): TerminalInfo {
@@ -125,6 +125,7 @@ export class TerminalManager extends EventEmitter {
         ...process.env,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
+        CLAUDECODE: '', // Unset to allow spawning Claude inside a Claude session
       },
     });
 
