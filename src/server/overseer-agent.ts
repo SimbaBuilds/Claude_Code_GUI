@@ -757,14 +757,19 @@ const TOOLS: Tool[] = [
   },
   {
     name: 'search_history',
-    description: 'Search past Claude Code chat sessions',
+    description: 'Search past Claude Code chat sessions. Use last_n + session_id to retrieve the final messages of a session (how it concluded). Use after/before for date range filtering. Use order:"asc" for chronological view.',
     input_schema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Search query' },
-        limit: { type: 'number', description: 'Max results (default 10)' },
+        query: { type: 'string', description: 'Full-text search query. Required unless using last_n with session_id.' },
+        session_id: { type: 'string', description: 'Filter results to a specific session ID' },
+        limit: { type: 'number', description: 'Max results (default 5)' },
+        after: { type: 'number', description: 'Only return messages after this Unix timestamp (ms)' },
+        before: { type: 'number', description: 'Only return messages before this Unix timestamp (ms)' },
+        order: { type: 'string', enum: ['asc', 'desc'], description: 'Result order: asc=chronological, desc=newest first (default)' },
+        last_n: { type: 'number', description: 'Return the last N messages from session_id (requires session_id). Shows how a conversation concluded.' },
       },
-      required: ['query'],
+      required: [],
     },
   },
   {
@@ -1243,7 +1248,16 @@ export class OverseerAgent extends EventEmitter {
         });
 
         const toolStartTime = Date.now();
-        const result = await this.executeTool(toolUse.name, toolUse.input as Record<string, unknown>);
+        let result: unknown;
+        let threwError = false;
+        try {
+          result = await this.executeTool(toolUse.name, toolUse.input as Record<string, unknown>);
+        } catch (err) {
+          threwError = true;
+          const errMsg = err instanceof Error ? err.message : String(err);
+          log.warn('Tool threw error, returning to agent', { tool: toolUse.name, error: errMsg });
+          result = { error: errMsg };
+        }
 
         // Check for abort after tool execution
         if (this.isAborted) {
@@ -1253,7 +1267,7 @@ export class OverseerAgent extends EventEmitter {
 
         // Emit tool completion message
         const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
-        const isError = typeof result === 'object' && result !== null && 'error' in result;
+        const isError = threwError || (typeof result === 'object' && result !== null && 'error' in result);
 
         log.info('Tool completed', {
           tool: toolUse.name,
@@ -1361,10 +1375,33 @@ export class OverseerAgent extends EventEmitter {
 
       case 'search_history': {
         const MAX_CONTENT_CHARS = 300;
+
+        // last_n mode: get final messages from a session
+        if (input.last_n && input.session_id) {
+          const messages = this.historyService.getLastMessages(
+            input.session_id as string,
+            input.last_n as number
+          );
+          // Truncate content
+          for (const msg of messages) {
+            if (typeof msg.content === 'string' && msg.content.length > MAX_CONTENT_CHARS) {
+              (msg as { content: string }).content = msg.content.slice(0, MAX_CONTENT_CHARS) + '...';
+            }
+          }
+          return messages;
+        }
+
+        if (!input.query) {
+          return { error: 'query is required unless using last_n with session_id' };
+        }
+
         const results = await this.historyService.searchMessages(
           input.query as string,
-          undefined,
-          (input.limit as number) || 5 // Reduced default from 10 to 5
+          input.session_id as string | undefined,
+          (input.limit as number) || 5,
+          input.after as number | undefined,
+          input.before as number | undefined,
+          (input.order as 'asc' | 'desc') || 'desc'
         );
         // Truncate each result's message.content to save tokens
         if (Array.isArray(results)) {

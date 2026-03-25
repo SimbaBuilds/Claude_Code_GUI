@@ -89,3 +89,4 @@ Use these CSS variables for consistent styling:
 make build      # JS only
 make build-css  # CSS only
 make all        # install + build + build-css
+- Please do not kill, start, or restart server

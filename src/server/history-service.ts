@@ -283,7 +283,7 @@ export class HistoryService extends EventEmitter {
     return results;
   }
 
-  async searchMessages(query: string, sessionId?: string, limit = 50): Promise<SearchResult[]> {
+  async searchMessages(query: string, sessionId?: string, limit = 50, after?: number, before?: number, order: 'asc' | 'desc' = 'desc'): Promise<SearchResult[]> {
     let sql = `
       SELECT m.id, m.session_id as sessionId, m.role, m.content, m.timestamp,
              s.project_path as projectPath, s.started_at as startedAt,
@@ -302,7 +302,17 @@ export class HistoryService extends EventEmitter {
       params.push(sessionId);
     }
 
-    sql += ' ORDER BY m.timestamp DESC LIMIT ?';
+    if (after !== undefined) {
+      sql += ' AND m.timestamp >= ?';
+      params.push(after);
+    }
+
+    if (before !== undefined) {
+      sql += ' AND m.timestamp <= ?';
+      params.push(before);
+    }
+
+    sql += ` ORDER BY m.timestamp ${order === 'asc' ? 'ASC' : 'DESC'} LIMIT ?`;
     params.push(limit);
 
     const results = this.db.query(sql).all(...params) as Array<{
@@ -372,6 +382,22 @@ export class HistoryService extends EventEmitter {
         ...m,
         toolUses: m.toolUses ? JSON.parse(m.toolUses as unknown as string) : undefined,
       }));
+  }
+
+  getLastMessages(sessionId: string, n: number): HistoryMessage[] {
+    // Get last N messages in reverse order, then reverse to chronological
+    const rows = this.db
+      .query<HistoryMessage, [string, number]>(
+        `SELECT id, session_id as sessionId, role, content, tool_uses as toolUses, timestamp
+         FROM messages WHERE session_id = ?
+         ORDER BY timestamp DESC LIMIT ?`
+      )
+      .all(sessionId, n)
+      .map((m) => ({
+        ...m,
+        toolUses: m.toolUses ? JSON.parse(m.toolUses as unknown as string) : undefined,
+      }));
+    return rows.reverse(); // chronological order
   }
 
   updateSummary(sessionId: string, summary: string): void {
