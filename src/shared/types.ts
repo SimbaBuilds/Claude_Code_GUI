@@ -1,6 +1,6 @@
 // Shared types for Claude Code GUI
 
-export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
 
 export type TerminalType = 'claude' | 'gemini';
 

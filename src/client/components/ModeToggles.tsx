@@ -11,7 +11,6 @@ export function ModeToggles({ terminal }: ModeTogglesProps) {
   const { setMode, sendKey } = useTerminalStore();
 
   const modes: { mode: PermissionMode; label: string; danger?: boolean }[] = [
-    { mode: 'plan', label: 'Plan' },
     { mode: 'acceptEdits', label: 'Accept' },
     { mode: 'bypassPermissions', label: 'Skip Perms', danger: true },
   ];

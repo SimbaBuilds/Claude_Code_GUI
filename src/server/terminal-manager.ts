@@ -166,9 +166,7 @@ export class TerminalManager extends EventEmitter {
 
     // Permission mode
     if (terminal.permissionMode && terminal.permissionMode !== 'default') {
-      if (terminal.permissionMode === 'plan') {
-        args.push('--permission-mode', 'plan');
-      } else if (terminal.permissionMode === 'bypassPermissions') {
+      if (terminal.permissionMode === 'bypassPermissions') {
         args.push('--dangerously-skip-permissions');
       }
     }

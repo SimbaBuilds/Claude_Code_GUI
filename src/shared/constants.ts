@@ -28,8 +28,6 @@ export const CLAUDE_SLASH_COMMANDS: SlashCommand[] = [
   // Project setup (works in --print mode)
   { name: '/init', description: 'Initialize CLAUDE.md' },
 
-  // Mode switching (works in --print mode)
-  { name: '/plan', description: 'Enter plan mode' },
 ];
 
 // Note: These commands are INTERACTIVE and don't work well in --print mode.

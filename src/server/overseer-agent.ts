@@ -639,7 +639,7 @@ You have access to these tools to monitor and control the terminals:
 3. send_to_terminal - Send a message or command to a terminal
 4. spawn_terminal - Create a new Claude Code terminal (must use absolute paths)
 5. kill_terminal - Terminate a terminal
-6. set_permission_mode - Change a terminal's permission mode (default, acceptEdits, bypassPermissions, plan)
+6. set_permission_mode - Change a terminal's permission mode (default, acceptEdits, bypassPermissions)
 7. search_history - Search past chat sessions
 8. sleep - Pause your execution and wait for conditions to be met
 9. manage_email - Search, read, and draft emails in Cameron's Gmail (work or personal account) using Gmail API. Supports Gmail search syntax. Draft action creates a draft for Cameron to review and send.
@@ -717,7 +717,7 @@ const TOOLS: Tool[] = [
         model: { type: 'string', description: 'Model to use (opus, sonnet, haiku)' },
         permission_mode: {
           type: 'string',
-          enum: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+          enum: ['default', 'acceptEdits', 'bypassPermissions'],
           description: 'Permission mode',
         },
         dangerously_skip_permissions: {
@@ -748,7 +748,7 @@ const TOOLS: Tool[] = [
         terminal_id: { type: 'string', description: 'The terminal ID' },
         mode: {
           type: 'string',
-          enum: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+          enum: ['default', 'acceptEdits', 'bypassPermissions'],
           description: 'The permission mode to set',
         },
       },
