@@ -84,9 +84,5 @@ Use these CSS variables for consistent styling:
 - **Use CSS variables, not Tailwind color classes** - Classes like `bg-red-500` won't work. Use `var(--color-error)` instead.
 - **Inline styles for dynamic components** - For components with positioning needs (toasts, modals), use inline styles to ensure they work correctly.
 - **Build CSS separately** - After changing `globals.css`, run: `npx @tailwindcss/cli -i src/client/styles/globals.css -o dist/client/styles/globals.css`
-- Once plan is created or change is decided, please delegate implementation to Task agent on sonnet unless told otherwise. 
-- After completing code changes, please rebuild project using one of the commands below:
-make build      # JS only
-make build-css  # CSS only
-make all        # install + build + build-css
+- After completing code changes, please rebuild project with make all
 - Please do not kill, start, or restart server

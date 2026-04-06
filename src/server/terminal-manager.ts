@@ -116,18 +116,25 @@ export class TerminalManager extends EventEmitter {
     this.updateStatus(id, 'thinking');
 
     // Spawn CLI with the prompt as argument
-    const proc = Bun.spawn([command, ...args], {
-      cwd: terminal.cwd,
-      stdin: 'ignore',
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: {
-        ...process.env,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-        CLAUDECODE: '', // Unset to allow spawning Claude inside a Claude session
-      },
-    });
+    let proc;
+    try {
+      proc = Bun.spawn([command, ...args], {
+        cwd: terminal.cwd,
+        stdin: 'ignore',
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: {
+          ...process.env,
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+          CLAUDECODE: '', // Unset to allow spawning Claude inside a Claude session
+        },
+      });
+    } catch (error) {
+      log.error('Failed to spawn Claude process', { id, error: String(error) });
+      this.updateStatus(id, 'idle');
+      return;
+    }
 
     terminal.currentProc = proc;
     log.debug('Claude process spawned', { id, pid: proc.pid });
@@ -141,6 +148,10 @@ export class TerminalManager extends EventEmitter {
     // Handle process exit
     proc.exited.then((exitCode) => {
       log.info('Claude process exited', { id, exitCode });
+      terminal.currentProc = undefined;
+      this.updateStatus(id, 'idle');
+    }).catch((error) => {
+      log.error('Error waiting for process exit', { id, error: String(error) });
       terminal.currentProc = undefined;
       this.updateStatus(id, 'idle');
     });

@@ -1,6 +1,15 @@
 // Main server entry point - HTTP + WebSocket server
 // Testing GUI interaction - Claude Code GUI is working!
 
+// Global error handlers to prevent process crashes
+process.on('uncaughtException', (error) => {
+  console.error('[FATAL] Uncaught exception:', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled rejection:', reason);
+});
+
 import { join } from 'path';
 import { readFile, mkdir } from 'fs/promises';
 import { homedir } from 'os';
@@ -383,32 +392,36 @@ const server = Bun.serve({
     open(ws) {
       clients.add(ws);
 
-      // Send current state
-      send(ws, { type: 'terminal:list', terminals: terminalManager.list() });
-      send(ws, {
-        type: 'overseer:status',
-        status: overseerAgent.getStatus(),
-      });
-      send(ws, {
-        type: 'overseer:model',
-        model: overseerAgent.getModel(),
-      });
-
-      if (overseerAgent.isSleeping()) {
+      try {
+        // Send current state
+        send(ws, { type: 'terminal:list', terminals: terminalManager.list() });
         send(ws, {
-          type: 'overseer:sleeping',
-          conditions: overseerAgent.getWakeConditions(),
+          type: 'overseer:status',
+          status: overseerAgent.getStatus(),
         });
+        send(ws, {
+          type: 'overseer:model',
+          model: overseerAgent.getModel(),
+        });
+
+        if (overseerAgent.isSleeping()) {
+          send(ws, {
+            type: 'overseer:sleeping',
+            conditions: overseerAgent.getWakeConditions(),
+          });
+        }
+
+        // Send overseer threads
+        const threads = overseerAgent.getThreads(10);
+        send(ws, { type: 'overseer:threads', threads });
+
+        // Send history sessions automatically on connect
+        const sessions = historyService.getSessions(50, 0);
+        log.debug('WebSocket client connected', { sessionCount: sessions.length });
+        send(ws, { type: 'history:sessions', sessions });
+      } catch (error) {
+        log.error('Error in WebSocket open handler', { error: String(error) });
       }
-
-      // Send overseer threads
-      const threads = overseerAgent.getThreads(10);
-      send(ws, { type: 'overseer:threads', threads });
-
-      // Send history sessions automatically on connect
-      const sessions = historyService.getSessions(50, 0);
-      log.debug('WebSocket client connected', { sessionCount: sessions.length });
-      send(ws, { type: 'history:sessions', sessions });
     },
 
     message(ws, message) {

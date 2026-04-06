@@ -1126,7 +1126,7 @@ export class OverseerAgent extends EventEmitter {
         return;
       }
       log.error('Chat error', { error: String(error), stack: (error as Error).stack });
-      throw error;
+      this.updateStatus('idle');
     } finally {
       this.agentLoopPromise = null;
     }

@@ -80,7 +80,11 @@ export class SlackBridge extends EventEmitter {
       log.debug('Tracking thread', { threadKey, totalThreads: activeThreads.size });
 
       if (text) {
-        await this.overseerAgent.chat(text, { source: 'slack', sourceId: `${event.channel}:${threadTs}` });
+        try {
+          await this.overseerAgent.chat(text, { source: 'slack', sourceId: `${event.channel}:${threadTs}` });
+        } catch (error) {
+          log.error('Failed to process app_mention', { error: String(error), stack: (error as Error).stack });
+        }
       } else {
         // Reply in thread
         await say({ text: 'Hi! I\'m the Claude Code Overseer. Ask me anything about your terminals, or use `/claude-status` to check system status.', thread_ts: threadTs });

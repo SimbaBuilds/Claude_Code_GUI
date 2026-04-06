@@ -97,7 +97,11 @@ export class HistoryService extends EventEmitter {
     try {
       this.watcher = watch(PROJECTS_DIR, { recursive: true }, async (event, filename) => {
         if (filename?.endsWith('.jsonl') && !this.syncInProgress) {
-          await this.syncFile(join(PROJECTS_DIR, filename));
+          try {
+            await this.syncFile(join(PROJECTS_DIR, filename));
+          } catch (error) {
+            // Silently ignore - files may be deleted between detection and sync
+          }
         }
       });
     } catch (error) {
@@ -130,8 +134,12 @@ export class HistoryService extends EventEmitter {
         for (const file of files) {
           if (file.endsWith('.jsonl')) {
             const filePath = join(projectPath, file);
-            const synced = await this.syncFile(filePath);
-            if (synced) sessionCount++;
+            try {
+              const synced = await this.syncFile(filePath);
+              if (synced) sessionCount++;
+            } catch {
+              // Skip files that fail to sync (deleted, locked, etc.)
+            }
           }
         }
       }
@@ -228,8 +236,10 @@ export class HistoryService extends EventEmitter {
       }
 
       return true;
-    } catch (error) {
-      console.error(`Failed to sync ${filePath}:`, error);
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') {
+        console.error(`Failed to sync ${filePath}:`, error);
+      }
       return false;
     }
   }
